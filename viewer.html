@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>貨況查詢</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Segoe UI","Microsoft JhengHei",sans-serif;background:#f7f6f2;color:#2c2c2a;font-size:14px;padding:16px}
+.wrap{max-width:860px;margin:0 auto}
+h1{font-size:20px;margin-bottom:4px}
+.muted{color:#888780;font-size:12px}
+.tabs{display:flex;gap:6px;margin:14px 0 10px}
+.tab{padding:6px 14px;border:1px solid #d3d1c7;border-radius:16px;background:#fff;cursor:pointer;font-size:13px}
+.tab.on{background:#185fa5;color:#fff;border-color:#185fa5}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+select{padding:6px 10px;border:1px solid #d3d1c7;border-radius:6px;background:#fff;font-size:14px;max-width:100%}
+label.cb{display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap}
+.card{background:#fff;border-radius:10px;padding:12px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.card h3{font-size:15px;margin-bottom:8px}
+.card h4{font-size:13px;margin:10px 0 4px}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:5px 8px;text-align:left;border-bottom:.5px solid #f1efe8;font-size:13px;white-space:nowrap}
+th{color:#888780;font-weight:600;font-size:12px}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;white-space:nowrap}
+.b-green{background:#e3efd8;color:#3b6d11}
+.b-amber{background:#fbeed3;color:#9a6b0f}
+.b-gray{background:#eeede8;color:#666}
+.b-red{background:#f8d7d7;color:#a32d2d}
+.b-purple{background:#e6e1f7;color:#534ab7}
+.pay{font-size:13px;margin-top:6px;padding-top:6px;border-top:.5px solid #f1efe8}
+.empty{text-align:center;color:#888780;padding:24px 0}
+td.blank{background:#f1efe8}
+.stat{font-size:12px;color:#555;margin-bottom:6px;display:flex;gap:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>貨況查詢</h1>
+  <div class="muted" id="updated"></div>
+  <div class="tabs">
+    <button class="tab on" id="tabShip" onclick="setView('ship')">個人貨況</button>
+    <button class="tab" id="tabBox" onclick="setView('box')">拆團狀況</button>
+  </div>
+  <div class="controls" id="ctrlShip">
+    <select id="nick"><option value="">— 選擇暱稱 —</option></select>
+    <select id="grp"><option value="">全部團</option></select>
+    <label class="cb"><input type="checkbox" id="hideShipped">隱藏已出貨</label>
+  </div>
+  <div class="controls" id="ctrlBox" style="display:none">
+    <select id="grp2"></select>
+  </div>
+  <div id="content"><div class="empty">請選擇暱稱</div></div>
+</div>
+<script src="data.js"></script>
+<script>
+const D=window.VIEWER_DATA||{groups:[]};
+let view='ship';
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+document.getElementById('updated').textContent=D.updatedAt?'資料更新時間：'+D.updatedAt:'';
+
+const nickSel=document.getElementById('nick');
+const grpSel=document.getElementById('grp');
+const grp2Sel=document.getElementById('grp2');
+const hideCb=document.getElementById('hideShipped');
+
+const allNicks=[...new Set(D.groups.flatMap(g=>Object.keys(g.buyers||{})))].sort();
+for(const n of allNicks){const o=document.createElement('option');o.value=n;o.textContent=n;nickSel.appendChild(o);}
+D.groups.forEach((g,i)=>{
+  const o=document.createElement('option');o.value=i;o.textContent=g.name;grpSel.appendChild(o);
+  const o2=document.createElement('option');o2.value=i;o2.textContent=g.name;grp2Sel.appendChild(o2);
+});
+
+function setView(v){
+  view=v;
+  document.getElementById('tabShip').className='tab'+(v==='ship'?' on':'');
+  document.getElementById('tabBox').className='tab'+(v==='box'?' on':'');
+  document.getElementById('ctrlShip').style.display=v==='ship'?'flex':'none';
+  document.getElementById('ctrlBox').style.display=v==='box'?'flex':'none';
+  render();
+}
+
+function renderShip(){
+  const nick=nickSel.value,gi=grpSel.value,hide=hideCb.checked;
+  if(!nick)return '<div class="empty">請選擇暱稱</div>';
+  let h='';
+  D.groups.forEach((g,i)=>{
+    if(gi!==''&&String(i)!==gi)return;
+    const rows=((g.buyers||{})[nick]||[]).filter(r=>!(hide&&r.s));
+    if(!rows.length)return;
+    h+=`<div class="card"><h3>${esc(g.name)}</h3>
+      <div class="tbl"><table><thead><tr><th>商品</th><th>數量</th><th>到貨</th><th>出貨</th></tr></thead><tbody>`;
+    for(const r of rows){
+      h+=`<tr><td>${esc(r.label)}</td><td>${r.qty}</td>
+        <td><span class="badge ${r.a?'b-green':'b-amber'}">${r.a?'已到貨':'未到貨'}</span></td>
+        <td><span class="badge ${r.s?'b-green':'b-gray'}">${r.s?'已出貨':'未出貨'}</span></td></tr>`;
+    }
+    h+='</tbody></table></div>';
+    const p=g.pay&&g.pay[nick];
+    if(p){
+      const diff=p.total-(p.paid||0);
+      h+=`<div class="pay">應付 $${p.total.toLocaleString()} · 已付 $${(p.paid||0).toLocaleString()} · `+
+        (diff>0?`<span class="badge b-red">餘款 $${diff.toLocaleString()}</span>`:'<span class="badge b-green">已付清</span>')+`</div>`;
+    }
+    h+='</div>';
+  });
+  return h||'<div class="empty">此暱稱查無資料</div>';
+}
+
+function renderBox(){
+  const gi=parseInt(grp2Sel.value)||0;
+  const g=D.groups[gi];
+  if(!g)return '<div class="empty">無資料</div>';
+  const products=g.products||[];
+  if(!products.length)return '<div class="empty">此團尚無商品</div>';
+  let h='';
+  for(const p of products){
+    if(p.kind==='single'){
+      h+=`<div class="card"><h3>${esc(p.name)} <span class="badge b-purple">單領</span></h3>
+        <div class="tbl"><table><thead><tr><th>款式</th><th>單價</th><th>已喊</th><th>喊單者</th></tr></thead><tbody>`;
+      for(const c of p.contents){
+        const bs=(p.styleBuyers||{})[c]||[];
+        const qty=bs.reduce((s,b)=>s+b.qty,0);
+        h+=`<tr><td>${esc(c)}</td><td>${p.unitPrice?'$'+p.unitPrice:'-'}</td><td>${qty}</td>
+          <td>${bs.map(b=>`${esc(b.nick)}×${b.qty}`).join(', ')||'-'}</td></tr>`;
+      }
+      h+='</tbody></table></div></div>';
+      continue;
+    }
+    h+=`<div class="card"><h3>${esc(p.name)}</h3>
+      <div class="stat"><span>已成 <strong>${p.complete}</strong> 配</span>
+      ${p.missing&&p.missing.length?`<span style="color:#a32d2d">下一配餘：${p.missing.map(esc).join('、')}</span>`:'<span style="color:#3b6d11">無缺口</span>'}</div>
+      <div class="tbl"><table><thead><tr><th></th>
+      ${p.contents.map(c=>`<th>${esc(c)}${p.prices&&p.prices[c]?`<br><span style="font-weight:normal">$${p.prices[c]}</span>`:''}${p.bind&&p.bind[c]?` <span class="badge b-purple">綁${p.bind[c]}</span>`:''}</th>`).join('')}<th>狀態</th></tr></thead><tbody>`;
+    (p.boxes||[]).forEach((b,i)=>{
+      h+=`<tr><td style="font-weight:bold">第 ${i+1} 配</td>`;
+      for(const s of b.slots){
+        h+=s.nick?`<td>${esc(s.nick)}${s.bind?'(綁)':''}</td>`:'<td class="blank"></td>';
+      }
+      const sb=b.status==='成團'?'b-green':b.status==='含綁成團'?'b-purple':'b-amber';
+      h+=`<td><span class="badge ${sb}">${b.status}</span></td></tr>`;
+    });
+    if(p.hidden>0)h+=`<tr><td colspan="${p.contents.length+2}" class="muted" style="text-align:center">…其餘 ${p.hidden} 配未顯示</td></tr>`;
+    h+='</tbody></table></div></div>';
+  }
+  return h;
+}
+
+function render(){
+  document.getElementById('content').innerHTML=view==='ship'?renderShip():renderBox();
+}
+nickSel.onchange=render;grpSel.onchange=render;hideCb.onchange=render;grp2Sel.onchange=render;
+</script>
+</body>
+</html>
