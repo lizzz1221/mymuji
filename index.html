@@ -109,6 +109,14 @@ td input,td select{padding:4px 6px;font-size:12px;border-radius:4px}
 .color-row{display:flex;gap:6px;align-items:center}
 .color-row input[type=color]{width:36px;height:28px;padding:0;border:1px solid #d3d1c7;border-radius:4px;cursor:pointer}
 
+.bp-detail{display:flex;gap:12px;align-items:flex-start;margin-top:8px}
+.bp-detail-img{width:140px;max-width:30%;border-radius:8px;border:1px solid #e5e3da;flex-shrink:0;cursor:zoom-in}
+@media(max-width:640px){
+  .bp-detail{flex-direction:column;align-items:center}
+  .bp-detail-img{width:180px;max-width:70%}
+  .bp-detail>div{width:100%}
+}
+
 td .slot-del{display:none;color:#a32d2d;cursor:pointer;margin-left:4px;font-weight:bold}
 td:hover .slot-del{display:inline}
 .slot-empty{cursor:pointer}
@@ -487,6 +495,12 @@ function toggleShip(gid,keyEnc,field){
   upG(gid,g=>{if(!g.ship)g.ship={};const st=g.ship[key]||{};st[field]=st[field]?0:1;g.ship[key]=st;});
   showShipModal();
 }
+// 喊單總覽的出貨勾選（與個人貨況查詢共用同一份狀態）
+function toggleShipKey(gid,keyEnc){
+  const key=decodeURIComponent(keyEnc);
+  upG(gid,g=>{if(!g.ship)g.ship={};const st=g.ship[key]||{};st.s=st.s?0:1;g.ship[key]=st;});
+  render();
+}
 
 // ── 發布團員查詢資料 ──
 // 產生 data.js：內含去敏後的完整資料庫（只留拆盒團，去除截圖/聯絡方式/成員備註）。
@@ -747,7 +761,7 @@ function renderSingleTab(g){
 function bpDetailHtml(g,p){
   let h='';
   const isSingle=p.kind==='single';
-  if(p.img)h+=`<div style="display:flex;gap:12px;align-items:flex-start;margin-top:8px"><img src="${p.img}" style="width:140px;max-width:30%;border-radius:8px;border:1px solid #e5e3da;flex-shrink:0;cursor:zoom-in" onclick="event.stopPropagation();showImg(this.src)"><div style="flex:1;min-width:0;overflow-x:auto">`;
+  if(p.img)h+=`<div class="bp-detail"><img class="bp-detail-img" src="${p.img}" onclick="event.stopPropagation();showImg(this.src)"><div style="flex:1;min-width:0;overflow-x:auto">`;
   h+=`<div style="font-size:12px;margin:8px 0 6px">款式：${p.contents.map(c=>{
     const pr=isSingle?(p.unitPrice||null):(p.adjustPrice&&p.itemPrices&&p.itemPrices[c]!=null?p.itemPrices[c]:(p.avgPrice||null));
     return `<span style="display:inline-block;padding:1px 6px;margin:2px;background:#f1efe8;border-radius:4px">${esc(c)}${pr!=null?' $'+pr:''}</span>`;
@@ -1134,12 +1148,17 @@ function renderBuyersTab(g){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <strong>${esc(nick)}</strong><span class="muted">${d.qty} 件 · $${d.amt.toLocaleString()}</span></div>
       ${buyerLine}
-      <table><thead><tr><th>商品</th><th>${esc(st.fieldQty)}</th>${hasAnyAdj?'<th>調價</th>':`<th>${esc(st.fieldPrice)}</th>`}<th>小計</th><th>${esc(st.fieldNote)}</th></tr></thead><tbody>`;
+      <table><thead><tr><th>商品</th><th>${esc(st.fieldQty)}</th>${hasAnyAdj?'<th>調價</th>':`<th>${esc(st.fieldPrice)}</th>`}<th>小計</th><th>${esc(st.fieldNote)}</th><th>出貨</th></tr></thead><tbody>`;
     for(const o of d.orders){
       const price=effPrice(g,o);
       const bp=isBox?(g.boxProducts||[]).find(p=>orderMatches(p,o)&&p.contents.includes(o.item)):null;
       const label=bpItemLabel(bp,o.item);
-      h+=`<tr><td>${esc(label)}</td><td>${o.qty}</td><td>${price?'$'+price:'-'}</td><td>${price?'$'+(o.qty*price):'-'}</td><td class="muted">${esc(o.note||'')}</td></tr>`;
+      const shipKey=`${o.bpId||''}|||${o.item}|||${o.bind?1:0}|||${nick}`;
+      const shipped=!!((g.ship||{})[shipKey]||{}).s;
+      const shipCell=RO
+        ?`<span class="badge ${shipped?'b-green':'b-gray'}">${shipped?'已出貨':'未出貨'}</span>`
+        :`<input type="checkbox" ${shipped?'checked':''} title="勾選＝已出貨" onchange="toggleShipKey(${g.id},'${encodeURIComponent(shipKey)}')">`;
+      h+=`<tr><td>${esc(label)}</td><td>${o.qty}</td><td>${price?'$'+price:'-'}</td><td>${price?'$'+(o.qty*price):'-'}</td><td class="muted">${esc(o.note||'')}</td><td>${shipCell}</td></tr>`;
     }
     h+=`</tbody></table></div>`;
   }}
