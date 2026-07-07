@@ -428,7 +428,7 @@ function renderOrdersTab(g){
   if(!filtered.length){h+=`<div class="empty">無喊單</div>`;}
   else{
     h+=`<div style="overflow-x:auto"><table><thead><tr>
-      <th>${esc(st.fieldNick)}</th><th>${esc(st.fieldItem)}</th>${isBox?'<th>所屬盒組</th>':''}<th>${esc(st.fieldQty)}</th><th>${esc(st.fieldPrice)}</th><th>小計</th><th>${esc(st.fieldNote)}</th><th>時間</th><th>操作</th>
+      <th>${esc(st.fieldNick)}</th><th>${esc(st.fieldItem)}</th>${isBox?'<th>所屬盒組</th>':''}<th>${esc(st.fieldQty)}</th><th>${esc(st.fieldPrice)}</th><th>小計</th><th>${esc(st.fieldNote)}</th><th>時間</th>${RO?'':'<th>操作</th>'}
     </tr></thead><tbody>`;
     for(const o of filtered){
       let boxName='';
@@ -441,8 +441,8 @@ function renderOrdersTab(g){
         <td>${o.qty}</td><td>${pr?'$'+pr:'-'}</td><td>${pr?'$'+(o.qty*pr):'-'}</td>
         <td class="muted">${esc(o.note||'')}</td>
         <td class="muted" style="white-space:nowrap">${fmtTs(o.ts)}</td>
-        <td style="white-space:nowrap"><button class="bs bg" onclick="showEditOrderModal(${g.id},${o.id})">編輯</button>
-        <button class="bs bg" style="color:#a32d2d" onclick="delOrder(${g.id},${o.id})">刪除</button></td></tr>`;
+        ${RO?'':`<td style="white-space:nowrap"><button class="bs bg" onclick="showEditOrderModal(${g.id},${o.id})">編輯</button>
+        <button class="bs bg" style="color:#a32d2d" onclick="delOrder(${g.id},${o.id})">刪除</button></td>`}</tr>`;
     }
     h+=`</tbody></table></div>`;
   }
@@ -465,15 +465,20 @@ function showShipModal(){
       if(!list.length)continue;
       const ship=g.ship||{};
       let rows='';
+      const groupArrived=['已到貨','已結團'].includes(g.status);
       for(const o of list){
-        const key=`${o.bpId||''}|||${o.item}|||${o.bind?1:0}`;
-        const st=ship[key+'|||'+_spNick]||{};
+        const fullKey=`${o.bpId||''}|||${o.item}|||${o.bind?1:0}|||${_spNick}`;
+        const st=ship[fullKey]||{};
         if(_spHide&&st.s)continue;
         const bp=(g.boxProducts||[]).find(p=>orderMatches(p,o)&&p.contents.includes(o.item));
         const label=bpItemLabel(bp,o.item)+(o.bind?'（綁）':'');
+        const arrived=effArrived(g,fullKey);
+        const arrCell=groupArrived&&!RO
+          ?`<span class="badge ${arrived?'b-green':'b-red'}" style="cursor:pointer" title="點擊標記缺件/到貨" onclick="toggleShip(${g.id},'${encodeURIComponent(fullKey)}','na')">${arrived?'已到貨':'缺件'}</span>`
+          :`<span class="badge ${arrived?'b-green':(groupArrived&&st.na)?'b-red':'b-amber'}">${arrived?'已到貨':(groupArrived&&st.na)?'缺件':'未到貨'}</span>`;
         rows+=`<tr><td>${esc(label)}</td><td style="text-align:center">${o.qty}</td>
-          <td><span class="badge ${st.a?'b-green':'b-amber'}" style="cursor:pointer" title="點擊切換" onclick="toggleShip(${g.id},'${encodeURIComponent(key+'|||'+_spNick)}','a')">${st.a?'已到貨':'未到貨'}</span></td>
-          <td><span class="badge ${st.s?'b-green':'b-gray'}" style="cursor:pointer" title="點擊切換" onclick="toggleShip(${g.id},'${encodeURIComponent(key+'|||'+_spNick)}','s')">${st.s?'已出貨':'未出貨'}</span></td></tr>`;
+          <td>${arrCell}</td>
+          <td><span class="badge ${st.s?'b-green':'b-gray'}" style="cursor:pointer" title="點擊切換" onclick="toggleShip(${g.id},'${encodeURIComponent(fullKey)}','s')">${st.s?'已出貨':'未出貨'}</span></td></tr>`;
       }
       if(rows)rowsHtml+=`<h3 style="margin:10px 0 4px">${esc(g.name)}</h3>
         <table><thead><tr><th>商品</th><th>數量</th><th>到貨</th><th>出貨</th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -490,15 +495,21 @@ function showShipModal(){
     <div style="max-height:60vh;overflow-y:auto">${rowsHtml}</div>
     <div class="btn-row" style="margin-top:10px"><button onclick="closeModal()">關閉</button></div>`);
 }
+// 到貨狀態：跟著團的狀態走（已到貨/已結團＝到貨），可對個別項目手動標記缺件（na）
+function effArrived(g,key){
+  if(!['已到貨','已結團'].includes(g.status))return false;
+  return !(((g.ship||{})[key]||{}).na);
+}
 function toggleShip(gid,keyEnc,field){
   const key=decodeURIComponent(keyEnc);
   upG(gid,g=>{if(!g.ship)g.ship={};const st=g.ship[key]||{};st[field]=st[field]?0:1;g.ship[key]=st;});
   showShipModal();
 }
-// 喊單總覽的出貨勾選（與個人貨況查詢共用同一份狀態）
-function toggleShipKey(gid,keyEnc){
+// 喊單總覽的出貨/缺件勾選（與個人貨況查詢共用同一份狀態）
+function toggleShipKey(gid,keyEnc,field){
   const key=decodeURIComponent(keyEnc);
-  upG(gid,g=>{if(!g.ship)g.ship={};const st=g.ship[key]||{};st.s=st.s?0:1;g.ship[key]=st;});
+  const f=field||'s';
+  upG(gid,g=>{if(!g.ship)g.ship={};const st=g.ship[key]||{};st[f]=st[f]?0:1;g.ship[key]=st;});
   render();
 }
 
@@ -785,7 +796,7 @@ function bpDetailHtml(g,p){
     <div style="display:flex;gap:16px;font-size:13px;margin-bottom:10px;flex-wrap:wrap">
       <span>已成 <strong>${info.complete}</strong> 配</span>
       ${info.bindComplete?`<span style="color:#534ab7">含綁成團 <strong>${info.bindComplete}</strong> 配</span>`:''}
-      <span>需開 <strong>${info.boxesNeeded}</strong> 盒</span>
+      <span>開 <strong>${info.boxesNeeded}</strong> 盒</span>
       <span>餘量 <strong style="color:${info.surplus?'#a32d2d':'#3b6d11'}">${info.surplus}</strong> 個</span>
       <span class="muted">上限 ${p.maxBoxes||'不限'} 盒${p.pricePerBox?' · $'+p.pricePerBox+'/盒':''}</span>
     </div>`;
@@ -1148,17 +1159,28 @@ function renderBuyersTab(g){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <strong>${esc(nick)}</strong><span class="muted">${d.qty} 件 · $${d.amt.toLocaleString()}</span></div>
       ${buyerLine}
-      <table><thead><tr><th>商品</th><th>${esc(st.fieldQty)}</th>${hasAnyAdj?'<th>調價</th>':`<th>${esc(st.fieldPrice)}</th>`}<th>小計</th><th>${esc(st.fieldNote)}</th><th>出貨</th></tr></thead><tbody>`;
+      <table><thead><tr><th>商品</th><th>${esc(st.fieldQty)}</th>${hasAnyAdj?'<th>調價</th>':`<th>${esc(st.fieldPrice)}</th>`}<th>小計</th><th>${esc(st.fieldNote)}</th><th>到貨狀況</th><th>出貨</th></tr></thead><tbody>`;
+    const groupArrived=['已到貨','已結團'].includes(g.status);
     for(const o of d.orders){
       const price=effPrice(g,o);
       const bp=isBox?(g.boxProducts||[]).find(p=>orderMatches(p,o)&&p.contents.includes(o.item)):null;
       const label=bpItemLabel(bp,o.item);
       const shipKey=`${o.bpId||''}|||${o.item}|||${o.bind?1:0}|||${nick}`;
-      const shipped=!!((g.ship||{})[shipKey]||{}).s;
+      const stt=(g.ship||{})[shipKey]||{};
+      const shipped=!!stt.s;
+      const arrived=effArrived(g,shipKey);
+      let arrCell;
+      if(!groupArrived){
+        arrCell='<span class="badge b-amber">未到貨</span>';
+      } else if(RO){
+        arrCell=`<span class="badge ${arrived?'b-green':'b-red'}">${arrived?'已到貨':'缺件'}</span>`;
+      } else {
+        arrCell=`<input type="checkbox" ${arrived?'checked':''} title="取消勾選＝該項缺件" onchange="toggleShipKey(${g.id},'${encodeURIComponent(shipKey)}','na')">${arrived?'':' <span class="badge b-red">缺件</span>'}`;
+      }
       const shipCell=RO
         ?`<span class="badge ${shipped?'b-green':'b-gray'}">${shipped?'已出貨':'未出貨'}</span>`
         :`<input type="checkbox" ${shipped?'checked':''} title="勾選＝已出貨" onchange="toggleShipKey(${g.id},'${encodeURIComponent(shipKey)}')">`;
-      h+=`<tr><td>${esc(label)}</td><td>${o.qty}</td><td>${price?'$'+price:'-'}</td><td>${price?'$'+(o.qty*price):'-'}</td><td class="muted">${esc(o.note||'')}</td><td>${shipCell}</td></tr>`;
+      h+=`<tr><td>${esc(label)}</td><td>${o.qty}</td><td>${price?'$'+price:'-'}</td><td>${price?'$'+(o.qty*price):'-'}</td><td class="muted">${esc(o.note||'')}</td><td>${arrCell}</td><td>${shipCell}</td></tr>`;
     }
     h+=`</tbody></table></div>`;
   }}
