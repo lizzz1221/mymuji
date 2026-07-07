@@ -1,5 +1,5 @@
-邦邦拆谷固團的查詢網址:D `
+邦邦拆谷固團的查詢網址:D
 
-https://lizzz1221.github.io/-/ `
+https://lizzz1221.github.io/-/
 
-手動更新請見諒
+手動更新請見諒🙏
