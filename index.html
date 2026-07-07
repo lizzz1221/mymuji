@@ -243,6 +243,11 @@ function loadDB(){
   const db=JSON.parse(localStorage.getItem('gp_db2')||'{"groups":[],"nid":1}');
   // 舊喊單補上商品ID（款式名可跨商品重複，需要精準對應）
   let changed=false;
+  // 舊狀態對應到新狀態
+  const statusMap={'開團中':'進行中','已截單':'收款中','已封存':'已結團'};
+  for(const g of db.groups){
+    if(statusMap[g.status]){g.status=statusMap[g.status];changed=true;}
+  }
   // 喊單人資料（跨團共用）：{暱稱:{contact:'',shots:[dataURL,...]}}
   if(!db.buyers)db.buyers={};
   // 固團成員改為跨團共用：合併舊的團內名單
@@ -1367,8 +1372,9 @@ document.addEventListener('paste',e=>{
 });
 function showSingleOrderModal(id){
   const g=getG(id);_mGid=id;_mRowId=0;
-  const nicks=[...new Set(g.orders.map(o=>o.nick))];
   const isBox=g.type==='box';
+  // 拆盒團的暱稱清單預設包含固團成員
+  const nicks=[...new Set([...(isBox?Object.keys(getTeam()):[]),...g.orders.map(o=>o.nick)])];
   const bps=(g.boxProducts||[]);
   const st=S();
 
@@ -2287,8 +2293,8 @@ function doSaveSettings(){
     showNote:$('#stShowNote').checked,
     showPrice:$('#stShowPrice').checked,
     defaultType:$('#stDefType').value,
-    defaultStatus:$('#stDefStatus').value.trim()||'開團中',
-    statuses:$('#stStatuses').value.trim()||'開團中,已截單,已到貨,已結團,已封存',
+    defaultStatus:$('#stDefStatus').value.trim()||'進行中',
+    statuses:$('#stStatuses').value.trim()||'進行中,收款中,已到貨,已結團',
     typeCarryLabel:$('#stTCL').value.trim()||'帶多統計',
     typeCarryDesc:$('#stTCD').value.trim()||'社團售物，帶越多越優先',
     typeBoxLabel:$('#stTBL').value.trim()||'拆盒',
