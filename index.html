@@ -170,7 +170,7 @@ td:hover .slot-del{display:inline}
   <div class="modal" id="modalContent"></div>
 </div>
 
-<script>document.write('<script src="data.js?v='+Date.now()+'"><\\/script>');</script>
+<script>document.write('<script src="data.js'+(location.protocol==='file:'?'':'?v='+Date.now())+'"><\/script>');</script>
 <script>
 const $=s=>document.querySelector(s);
 // 唯讀模式：data.js 存在時（發布給團員的版本）以嵌入資料執行，所有編輯功能停用
@@ -372,7 +372,7 @@ function renderHome(){
     <h1 style="margin:0">${esc(st.appTitle)}</h1>
     <button class="gear-btn" onclick="showSettings()" title="設定">⚙</button></div>
     ${RO&&window.VIEWER_DB.publishedAt?`<div class="muted" style="margin-bottom:1rem">資料更新時間：${esc(window.VIEWER_DB.publishedAt)}</div>`:''}
-    <div class="toolbar"><button class="bp" onclick="showNewGroupModal()">建立新團</button><button onclick="showFixedTeamModal()">固團成員</button><button onclick="showShipModal()">個人貨況查詢</button><button onclick="exportViewerData()">發布查詢資料</button><span class="muted">共 ${db.groups.length} 個團</span></div>
+    <div class="toolbar"><button class="bp" onclick="showNewGroupModal()">建立新團</button><button onclick="showFixedTeamModal()">固團成員</button><button onclick="showShipModal()">個人貨況查詢</button><button onclick="document.getElementById('importDataFile').click()">匯入 data.js</button><input id="importDataFile" type="file" accept=".js,.txt" style="display:none" onchange="importViewerData(this)"><button onclick="exportViewerData()">發布查詢資料</button><span class="muted">共 ${db.groups.length} 個團</span></div>
     <div class="filter-chips"><span class="chip ${homeFilter===''?'active':''}" onclick="homeFilter='';render()">全部</span>
     ${RO
       ?['進行中','已截團待收款','收款中','已完成收款','已到貨'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`).join('')
@@ -617,6 +617,31 @@ function exportViewerData(){
   const blob=new Blob([file],{type:'text/javascript'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='data.js';a.click();
   alert('已下載 data.js。\n把「index.html＋data.js」一起上傳到網站空間（index.html 有 data.js 在旁邊時會自動變成唯讀查詢版）。\n之後資料更新，只要重新發布並覆蓋 data.js。');
+}
+function importViewerData(input){
+  const f=input.files&&input.files[0];
+  input.value='';
+  if(!f)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const win={};
+      new Function('window',String(e.target.result))(win);
+      if(!win.VIEWER_DB||!Array.isArray(win.VIEWER_DB.groups))throw new Error('找不到 VIEWER_DB');
+      const db=JSON.parse(JSON.stringify(win.VIEWER_DB));
+      if(!confirm(`匯入後會覆蓋此裝置目前管理資料。\n將匯入 ${db.groups.length} 個團，確定繼續？`))return;
+      localStorage.setItem('gp_db2',JSON.stringify(db));
+      if(win.VIEWER_SETTINGS)localStorage.setItem('gp_settings',JSON.stringify(win.VIEWER_SETTINGS));
+      if(win.VIEWER_TEXTOV)localStorage.setItem('gp_text_overrides',JSON.stringify(win.VIEWER_TEXTOV));
+      _vdb=null;view='home';gid=null;tab='orders';sNick='';sItem='';homeFilter='';
+      alert('匯入完成');
+      applyTheme();render();
+    }catch(err){
+      alert('匯入失敗：請確認選的是本站匯出的 data.js');
+      console.error(err);
+    }
+  };
+  reader.readAsText(f);
 }
 
 // ── 固團成員名單（跨團共用，存於 db.fixedTeam） ──
