@@ -294,6 +294,8 @@ function loadDB(){
   for(const g of db.groups){
     if(statusMap[g.status]){g.status=statusMap[g.status];changed=true;}
     if(g.deadline&&g.status==='進行中'&&new Date(g.deadline)<new Date()){g.status='已截團待收款';changed=true;}
+    // 既有的已到貨團補上到貨時間（囤貨期限起算點，可在團內設定校正）
+    if(['已到貨','已結團'].includes(g.status)&&!g.arrivedAt){g.arrivedAt=Date.now();changed=true;}
   }
   if(!db.buyers)db.buyers={};
   for(const n of Object.keys(db.buyers)){
@@ -537,7 +539,20 @@ function showShipModal(){
           <td>${arrCell}</td>
           <td><span class="badge ${st.s?'b-green':'b-gray'}" style="cursor:pointer" title="點擊切換" onclick="toggleShip(${g.id},'${encodeURIComponent(fullKey)}','s')">${st.s?'已出貨':'未出貨'}</span></td></tr>`;
       }
-      if(rows)rowsHtml+=`<h3 style="margin:10px 0 4px">${esc(g.name)}</h3>
+      // 囤貨期限：轉成已到貨後 2 個月
+      let storageLine='';
+      if(groupArrived&&g.arrivedAt){
+        const limit=new Date(g.arrivedAt);
+        limit.setMonth(limit.getMonth()+2);
+        const days=Math.ceil((limit-new Date())/86400000);
+        const ds=`${limit.getFullYear()}/${String(limit.getMonth()+1).padStart(2,'0')}/${String(limit.getDate()).padStart(2,'0')}`;
+        storageLine=days<0
+          ?`<span class="badge b-red">囤貨期限 ${ds}（已逾期 ${-days} 天）</span>`
+          :days<=14
+            ?`<span class="badge b-amber">囤貨期限 ${ds}（剩 ${days} 天）</span>`
+            :`<span class="badge b-gray">囤貨期限 ${ds}</span>`;
+      }
+      if(rows)rowsHtml+=`<h3 style="margin:10px 0 4px">${esc(g.name)} ${storageLine}</h3>
         <div style="overflow-x:auto"><table><thead><tr><th>商品</th><th>數量</th><th>到貨</th><th>出貨</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
     if(!rowsHtml)rowsHtml='<div class="empty">無資料</div>';
@@ -1348,6 +1363,9 @@ function renderGroupSettingsTab(g){
       <div class="form-group"><label>開團日期</label><input id="gsDate" type="date" value="${esc(dateVal)}"></div>
       <div class="form-group"><label>截止時間</label><input id="gsDeadline" type="datetime-local" value="${esc(g.deadline||'')}"></div>
     </div>
+    <div class="form-row">
+      <div class="form-group"><label>到貨日期（囤貨期限起算，+2個月）</label><input id="gsArrived" type="date" value="${g.arrivedAt?new Date(g.arrivedAt).toISOString().slice(0,10):''}"></div>
+    </div>
     <div class="form-group" style="margin:10px 0"><label>官方預計出貨時間</label><input id="gsOfficialShip" value="${esc(g.officialShip||'')}" placeholder="例：2026/10 預定"></div>
     <div class="form-group" style="margin:10px 0"><label>官網 / 官店網址</label><input id="gsOfficialUrl" value="${esc(g.officialUrl||'')}" placeholder="例：https://example.com"></div>
     <div class="form-row">
@@ -1360,12 +1378,22 @@ function renderGroupSettingsTab(g){
     <div class="btn-row"><button class="bp" onclick="saveGroupSettings(${g.id})">儲存團內設定</button></div>
   </div>`;
 }
+// 記錄轉成「已到貨」的時間（囤貨期限起算點）；改回未到貨狀態則清除
+function markArrival(g,newStatus){
+  const arrived=['已到貨','已結團'].includes(newStatus);
+  if(arrived&&!g.arrivedAt)g.arrivedAt=Date.now();
+  if(!arrived&&g.arrivedAt)delete g.arrivedAt;
+}
 function saveGroupSettings(id){
   upG(id,g=>{
     g.name=$('#gsName').value.trim()||g.name;
     g.type=$('#gsType').value;
     g.desc=$('#gsDesc').value.trim();
     g.status=$('#gsStatus').value;
+    markArrival(g,g.status);
+    // 手動指定到貨日期優先（中午起算避免時區誤差）
+    const av=$('#gsArrived')?.value;
+    if(av)g.arrivedAt=new Date(av+'T12:00').getTime();
     const dv=$('#gsDate').value;if(dv)g.createdAt=dv.replace(/-/g,'/');
     g.deadline=$('#gsDeadline').value||'';
     g.officialShip=$('#gsOfficialShip').value.trim();
@@ -1535,6 +1563,7 @@ function showEditGroupModal(id){
 function saveGroupEdit(id){
   upG(id,g=>{
     g.name=$('#mGN').value.trim()||g.name;g.type=$('#mGT').value;g.desc=$('#mGD').value.trim();g.status=$('#mGS').value;
+    markArrival(g,g.status);
     const dv=$('#mGDate').value;if(dv)g.createdAt=dv.replace(/-/g,'/');
     g.deadline=$('#mGDL').value||'';
     g.officialShip=$('#mGShip').value.trim();
@@ -2601,7 +2630,7 @@ document.addEventListener('click',e=>{
 })();
 function stripEditUI(){
   if(!RO)return;
-  const ok=/^\s*(goGroup|goHome|homeFilter|tab='|toggleBpDetail|showImg|event\.stopPropagation\(\);showImg|closeModal|showShipModal|_sp(Nick|Gid|Hide)|doExport|exportXls|exportSummaryXls|if\(event\.target)/;
+  const ok=/^\s*(goGroup|goHome|homeFilter|tab='|toggleBpDetail|showImg|event\.stopPropagation\(\);(showImg|openOfficialUrl)|closeModal|showShipModal|_sp(Nick|Gid|Hide)|doExport|exportXls|exportSummaryXls|if\(event\.target)/;
   document.querySelectorAll('[onclick]').forEach(el=>{
     const oc=el.getAttribute('onclick')||'';
     if(ok.test(oc))return;
