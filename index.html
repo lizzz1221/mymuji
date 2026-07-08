@@ -170,7 +170,7 @@ td:hover .slot-del{display:inline}
   <div class="modal" id="modalContent"></div>
 </div>
 
-<script src="data.js"></script>
+<script>document.write('<script src="data.js?v='+Date.now()+'"><\\/script>');</script>
 <script>
 const $=s=>document.querySelector(s);
 // 唯讀模式：data.js 存在時（發布給團員的版本）以嵌入資料執行，所有編輯功能停用
