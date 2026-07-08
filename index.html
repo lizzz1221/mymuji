@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Huninn&display=swap" rel="stylesheet">
 <style>
-:root{--accent:#c9899f;--accent-soft:#f6e9ee;--line:#ead9e0;--ink:#5c4a52;--ink-soft:#a08b94;--paper:#fff;--cream:#f9eff3;--fs:13px}
+:root{--accent:#c9899f;--accent-soft:#f6e9ee;--sky:#e5b85f;--sky-soft:#fff8e6;--line:#ead9e0;--ink:#5c4a52;--ink-soft:#a08b94;--paper:#fff;--cream:#f9eff3;--fs:13px}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Huninn','Yuanti TC','Microsoft JhengHei',sans-serif;background:#fbf6f8;color:var(--ink);line-height:1.6;font-size:var(--fs)}
 @media(min-width:800px){body{font-size:calc(var(--fs) + 2px)}}
@@ -47,7 +47,7 @@ tr:hover td{background:#fbf5f7}
 td input,td select{padding:4px 6px;font-size:.95em;border-radius:6px}
 
 .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.85em;font-weight:500;white-space:nowrap}
-.b-blue{background:#e3f0fb;color:#5583c0}
+.b-blue{background:var(--sky-soft);color:#b5812e}
 .b-green{background:#e2f5e6;color:#4e9a63}
 .b-amber{background:#fdf0dc;color:#c08a3e}
 .b-red{background:#fde5ea;color:#d16277}
@@ -56,10 +56,12 @@ td input,td select{padding:4px 6px;font-size:.95em;border-radius:6px}
 .b-teal{background:#dff4ef;color:#3e9e88}
 .b-coral{background:#fdeae2;color:#d07a55}
 
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:1rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:1rem}
 .stat{background:var(--cream);border-radius:14px;padding:10px 14px;border:1px solid var(--line)}
+.stat:nth-child(2){background:var(--sky-soft);border-color:#f2dfaa}
 .stat-l{font-size:12px;color:var(--ink-soft)}
 .stat-v{font-size:22px;font-weight:500;color:var(--accent)}
+.stat:nth-child(2) .stat-v{color:#b5812e}
 
 .empty{text-align:center;color:var(--ink-soft);padding:1.5rem;font-size:13px}
 .muted{color:var(--ink-soft);font-size:.9em}
@@ -68,12 +70,20 @@ td input,td select{padding:4px 6px;font-size:.95em;border-radius:6px}
 .nav-crumb{font-size:13px;color:var(--ink-soft);cursor:pointer}
 .nav-crumb:hover{color:var(--accent)}
 .nav-title{font-size:16px;font-weight:500}
+.group-hero{margin-bottom:1rem;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--paper);box-shadow:0 2px 8px rgba(201,137,159,.07)}
+.group-hero-cover{width:100%;height:230px;object-fit:cover;display:block;background:var(--sky-soft)}
+.group-hero-ph{height:120px;background:var(--sky-soft)}
+.group-hero-main{padding:14px 16px}
+.group-hero-title{font-size:26px;font-weight:700;line-height:1.25;color:var(--ink);margin-right:8px}
+.group-hero-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px}
+.group-note{margin-top:10px;padding:7px 10px;background:#fdf1f6;border-left:3px solid var(--sky);border-radius:8px;color:var(--ink-soft);font-size:.9em}
 
 .group-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px}
 .group-card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:0;overflow:hidden;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(201,137,159,.07);display:flex;flex-direction:column}
 .group-card:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(201,137,159,.15);transform:translateY(-2px)}
 .gc-cover{width:100%;height:130px;object-fit:cover;display:block;background:var(--cream)}
-.gc-ph{display:flex;align-items:center;justify-content:center;font-size:36px;color:var(--line)}
+.gc-ph{background:var(--sky-soft);position:relative}
+.gc-ph:after{content:'';width:42px;height:42px;border-radius:12px;border:2px solid rgba(201,137,159,.35);box-shadow:16px 12px 0 rgba(229,184,95,.28)}
 .gc-body{padding:10px 12px;display:flex;flex-direction:column;gap:4px;flex:1}
 .group-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
 .group-card .name{font-size:1em;font-weight:500;line-height:1.35}
@@ -120,6 +130,8 @@ td input,td select{padding:4px 6px;font-size:.95em;border-radius:6px}
 
 .bp-detail{display:flex;gap:12px;align-items:flex-start;margin-top:8px}
 .bp-detail-img{width:140px;max-width:30%;border-radius:12px;border:1px solid var(--line);flex-shrink:0;cursor:zoom-in}
+.twisty{width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:7px solid #888780;display:inline-block;transition:transform .12s;flex-shrink:0}
+.twisty.open{transform:rotate(90deg)}
 @media(max-width:640px){
   .bp-detail{flex-direction:column;align-items:center}
   .bp-detail-img{width:180px;max-width:70%}
@@ -338,6 +350,14 @@ let view='home',gid=null,tab='orders',sNick='',sItem='',homeFilter='';
 function goHome(){view='home';gid=null;render();}
 function goGroup(id){view='group';gid=id;tab='orders';sNick='';sItem='';render();}
 function render(){view==='home'?renderHome():renderGroup();}
+function syncHiddenStatsBtn(){
+  const btn=document.getElementById('hiddenStatsBtn');
+  if(!btn)return;
+  const g=(view==='group'&&tab==='buyers')?getG(gid):null;
+  const count=g?(g.hiddenStatsNicks||[]).length:0;
+  btn.style.display=(!RO&&count)?'block':'none';
+  btn.textContent=count?`復原統計 (${count})`:'復原統計';
+}
 
 // ── Home ──
 function renderHome(){
@@ -366,27 +386,26 @@ function renderHome(){
   if(active.length){h+=`<div class="group-grid">`;for(const g of active) h+=groupCard(g);h+=`</div>`;}
   if(archived.length){h+=`<h3 style="margin-top:1.5rem;color:#888780">已封存</h3><div class="group-grid">`;for(const g of archived) h+=groupCard(g,true);h+=`</div>`;}
   $('#app').innerHTML=h;
+  syncHiddenStatsBtn();
 }
 
 function groupCard(g,dim){
   const buyers=new Set(g.orders.map(o=>o.nick)).size;
-  const totalQty=g.orders.reduce((s,o)=>s+o.qty,0);
+  let productCount=0;
+  if(g.type==='box')productCount=(g.boxProducts||[]).length;
+  else if(g.type==='carry')productCount=(g.items||[]).length;
+  if(!productCount)productCount=new Set(g.orders.map(o=>o.item).filter(Boolean)).size;
+  const openDate=g.createdAt||'';
+  const closeDate=g.deadline?g.deadline.replace('T',' ').replace(/-/g,'/'):'';
   const T=getTypes(),SB=getSB();
   const ti=T[g.type]||T.basic;
-  let extra='';
-  if(g.type==='box'){
-    const bp=(g.boxProducts||[]);
-    const boxInfo=bp.map(p=>calcBoxes(g,p));
-    const totalComplete=boxInfo.reduce((s,b)=>s+b.complete,0);
-    extra=`<span>${bp.length} 種商品</span><span>${totalComplete} 盒成團</span>`;
-  }
   return `<div class="group-card" onclick="goGroup(${g.id})" style="${dim?'opacity:.6':''}">
-    ${g.cover?`<img class="gc-cover" src="${g.cover}">`:`<div class="gc-cover gc-ph">🛍️</div>`}
+    ${g.cover?`<img class="gc-cover" src="${g.cover}" style="object-position:${coverPos(g)}">`:`<div class="gc-cover gc-ph"></div>`}
     <div class="gc-body">
       <div class="top"><span class="name">${esc(g.name)}</span><span class="badge ${SB[g.status]||'b-gray'}">${g.status}</span></div>
       <div><span class="badge ${ti.badge}">${ti.label}</span></div>
-      <div class="meta"><span>${buyers} 位買家</span><span>${g.orders.length} 筆喊單</span><span>${totalQty} 件</span>${extra}</div>
-      <div class="meta"><span>開團 ${g.createdAt}</span>${g.deadline?`<span>截團 ${g.deadline.replace('T',' ').replace(/-/g,'/')}</span>`:''}</div>
+      <div class="meta"><span>${buyers} 人</span><span>${productCount} 種商品</span></div>
+      <div class="meta"><span>${openDate} ~ ${closeDate}</span></div>
     </div></div>`;
 }
 
@@ -395,31 +414,25 @@ function renderGroup(){
   const g=getG(gid);if(!g){goHome();return;}
   const T=getTypes(),SBM=getSB(),st=S();
   const ti=T[g.type]||T.basic;
-  let h=`<div class="nav">
-    <span class="nav-crumb" onclick="goHome()">← ${esc(st.appTitle)}</span>
-    <span class="nav-title">${esc(g.name)}</span><span class="badge ${ti.badge}">${ti.label}</span>
-    <span class="badge ${SBM[g.status]||'b-gray'}">${g.status}</span>
-    <div style="flex:1"></div><button class="bs" onclick="showEditGroupModal(${g.id})">編輯團</button></div>`;
-  if(g.desc) h+=`<div class="muted" style="margin-bottom:10px;padding:6px 10px;background:#fdf1f6;border-radius:6px">${esc(g.desc)}</div>`;
-
-  // 統計只計已成團（含綁成團）＋單領的部分
-  const confirmed=getConfirmedOrders(g);
-  const buyers=new Set(confirmed.map(o=>o.nick)).size;
-  const totalQty=confirmed.reduce((s,o)=>s+o.qty,0);
-  const totalAmt=confirmed.reduce((s,o)=>s+o.qty*effPrice(g,o),0);
-  h+=`<div class="stats">
-    <div class="stat"><div class="stat-l">買家</div><div class="stat-v">${buyers}</div></div>
-    <div class="stat"><div class="stat-l">喊單</div><div class="stat-v">${confirmed.length}</div></div>
-    <div class="stat"><div class="stat-l">總件數</div><div class="stat-v">${totalQty}</div></div>
-    <div class="stat"><div class="stat-l">總金額</div><div class="stat-v">$${totalAmt.toLocaleString()}</div></div></div>`;
+  const officialBtn=g.officialUrl?`<button class="bs" onclick="event.stopPropagation();openOfficialUrl('${encodeURIComponent(g.officialUrl)}')">官網/官店</button>`:'';
+  let h=`<div class="nav"><span class="nav-crumb" onclick="goHome()">← 回首頁</span><div style="flex:1"></div><button class="bs" onclick="showEditGroupModal(${g.id})">編輯團</button></div>
+    <div class="group-hero">
+      ${g.cover?`<img class="group-hero-cover" src="${g.cover}" style="object-position:${coverPos(g)}">`:`<div class="group-hero-ph"></div>`}
+      <div class="group-hero-main">
+        <div><span class="group-hero-title">${esc(g.name)}</span><span class="badge ${ti.badge}">${ti.label}</span> <span class="badge ${SBM[g.status]||'b-gray'}">${g.status}</span></div>
+        <div class="group-hero-meta"><span class="muted">開團 ${esc(g.createdAt||'')}</span>${g.deadline?`<span class="muted">截團 ${esc(g.deadline.replace('T',' ').replace(/-/g,'/'))}</span>`:''}${officialBtn}</div>
+        ${g.desc?`<div class="group-note">${esc(g.desc)}</div>`:''}
+        ${g.officialShip?`<div class="group-note">官方預計出貨時間：${esc(g.officialShip)}</div>`:''}
+      </div>
+    </div>`;
 
   const tabDefs=[
-    {key:'orders',label:'喊單管理',show:true},
+    {key:'orders',label:'喊單列表',show:true},
     {key:'boxSetup',label:'拆團狀況',show:g.type==='box'},
     {key:'single',label:'單領',show:g.type==='box'},
     {key:'items',label:'商品庫存',show:g.type==='carry'},
     {key:'priority',label:'帶多計算',show:g.type==='carry'},
-    {key:'buyers',label:'喊單總覽',show:true},
+    {key:'buyers',label:'已成團統計',show:true},
     {key:'pay',label:'收款狀況',show:true},
     {key:'groupSettings',label:'團內設定',show:!RO},
     {key:'export',label:'匯出',show:!RO},
@@ -431,6 +444,7 @@ function renderGroup(){
   const renderers={orders:renderOrdersTab,boxSetup:renderBoxSetupTab,single:renderSingleTab,items:renderItemsTab,priority:renderPriorityTab,buyers:renderBuyersTab,pay:renderPayTab,groupSettings:renderGroupSettingsTab,export:renderExportTab};
   h+=(renderers[tab]||renderers.orders)(g);
   $('#app').innerHTML=h;
+  syncHiddenStatsBtn();
 }
 
 // ── Orders Tab ──
@@ -440,12 +454,23 @@ function renderOrdersTab(g){
   const nicks=[...new Set(g.orders.map(o=>o.nick))].sort();
   const items=[...new Set(g.orders.map(o=>o.item))].sort();
   const isBox=g.type==='box';
+  const confirmed=getConfirmedOrders(g);
+  const buyers=new Set(confirmed.map(o=>o.nick)).size;
+  const totalQty=confirmed.reduce((s,o)=>s+o.qty,0);
+  const totalAmt=confirmed.reduce((s,o)=>s+o.qty*effPrice(g,o),0);
 
   let h=RO?'':`<div class="card"><h3>新增喊單</h3>
     <p class="muted" style="margin-bottom:8px">批次：${st.fieldNick} / ${isBox?'款式':st.fieldItem} / ${st.fieldQty}${isBox?'':' / '+st.fieldPrice}（每行一筆）</p>
     <textarea id="bulkIn" placeholder="${isBox?'小明 / 角色A / 1\n小花 / 角色B / 2\n阿杰 / 角色A / 3':'小明 / 立牌A / 2 / 150\n小花 / 吊飾B / 3 / 80'}" rows="4"></textarea>
     <div class="btn-row"><button class="bp" onclick="bulkAdd(${g.id})">批次匯入</button>
     <button onclick="showSingleOrderModal(${g.id})">單筆新增</button></div></div>`;
+
+  h+=`<div class="card"><div class="card-header"><h3 style="margin:0">已成團統計</h3></div>
+    <div class="stats" style="margin-bottom:0">
+      <div class="stat"><div class="stat-l">喊單人數</div><div class="stat-v">${buyers}</div></div>
+      <div class="stat"><div class="stat-l">總件數</div><div class="stat-v">${totalQty}</div></div>
+      <div class="stat"><div class="stat-l">總金額</div><div class="stat-v">$${totalAmt.toLocaleString()}</div></div>
+    </div></div>`;
 
   h+=`<div class="card"><div class="card-header"><h3 style="margin:0">喊單列表 (${g.orders.length})</h3>
     <button class="bs bd" onclick="clearOrders(${g.id})">清除全部</button></div>`;
@@ -781,7 +806,7 @@ function renderBoxSetupTab(g){
       }
       h+=`<div class="box-product">
         <div class="box-product-header" style="cursor:pointer" onclick="toggleBpDetail(${p.id})">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="color:#888780;font-size:11px">${open?'▼':'▶'}</span>${p.img?`<img src="${p.img}" style="width:28px;height:28px;object-fit:cover;border-radius:4px;cursor:zoom-in" onclick="event.stopPropagation();showImg(this.src)">`:''}<strong>${esc(p.name)}</strong>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="twisty ${open?'open':''}" aria-hidden="true"></span>${p.img?`<img src="${p.img}" style="width:28px;height:28px;object-fit:cover;border-radius:4px;cursor:zoom-in" onclick="event.stopPropagation();showImg(this.src)">`:''}<strong>${esc(p.name)}</strong>
             <span style="margin-left:6px;font-size:12px;display:inline-flex;gap:10px;flex-wrap:wrap">${statLine}</span></div>
           <div style="display:flex;gap:4px" onclick="event.stopPropagation()">
             <button class="bs bg" onclick="showEditBoxProductModal(${g.id},${p.id})">編輯</button>
@@ -1194,9 +1219,12 @@ function renderBuyersTab(g){
     if(!byB[o.nick])byB[o.nick]={items:new Set(),orders:[],qty:0,amt:0};
     byB[o.nick].items.add(o.item);byB[o.nick].orders.push(o);byB[o.nick].qty+=o.qty;byB[o.nick].amt+=o.qty*effPrice(g,o);
   }
-  const sorted=Object.entries(byB).sort((a,b)=>b[1].qty-a[1].qty);
-  let h=`<div class="card"><h3>喊單總覽 (${sorted.length})</h3>
-    ${g.type==='box'?'<p class="muted" style="margin-bottom:8px">僅列入已成團／含綁成團的配，未成團不計</p>':''}`;
+  const hiddenStats=new Set(g.hiddenStatsNicks||[]);
+  const allSorted=Object.entries(byB).sort((a,b)=>b[1].qty-a[1].qty);
+  const sorted=allSorted.filter(([nick])=>!hiddenStats.has(nick));
+  let h=`<div class="card"><h3>已成團統計 (${sorted.length})</h3>
+    ${g.type==='box'?'<p class="muted" style="margin-bottom:8px">僅列入已成團／含綁成團的配，未成團不計</p>':''}
+    ${hiddenStats.size?`<p class="muted" style="margin-bottom:8px">已隱藏 ${hiddenStats.size} 位，可用左下角「復原統計」恢復。</p>`:''}`;
   const isBox=g.type==='box';
   const hasAnyAdj=isBox&&(g.boxProducts||[]).some(p=>p.adjustPrice&&p.itemPrices);
   if(!sorted.length){h+=`<div class="empty">無買家</div>`;}
@@ -1212,8 +1240,8 @@ function renderBuyersTab(g){
       buyerLine=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">${contact}${shots}</div>`;
     }
     h+=`<div style="margin-bottom:14px;padding:10px;background:#fef7fa;border-radius:8px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <strong>${esc(nick)}</strong><span class="muted">${d.qty} 件 · $${d.amt.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+        <strong>${esc(nick)}</strong><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="muted">${d.qty} 件 · $${d.amt.toLocaleString()}</span>${RO?'':`<button class="bs bg" style="color:#a32d2d" onclick="hideBuyerStat(${g.id},'${encodeURIComponent(nick)}')">隱藏</button>`}</span></div>
       ${buyerLine}
       <div style="overflow-x:auto"><table><thead><tr><th>商品</th><th>${esc(st.fieldQty)}</th>${hasAnyAdj?'<th>調價</th>':`<th>${esc(st.fieldPrice)}</th>`}<th>小計</th><th>${esc(st.fieldNote)}</th><th>到貨狀況</th><th>出貨</th></tr></thead><tbody>`;
     const groupArrived=['已到貨','已結團'].includes(g.status);
@@ -1241,6 +1269,36 @@ function renderBuyersTab(g){
     h+=`</tbody></table></div></div>`;
   }}
   h+=`</div>`;return h;
+}
+function hideBuyerStat(gid,nickEnc){
+  const nick=decodeURIComponent(nickEnc);
+  if(!confirm(`從已成團統計隱藏「${nick}」？\n資料不會刪除，可再復原。`))return;
+  upG(gid,g=>{
+    const set=new Set(g.hiddenStatsNicks||[]);
+    set.add(nick);
+    g.hiddenStatsNicks=[...set];
+  });
+  render();
+}
+function showHiddenStatsModal(){
+  const g=getG(gid);if(!g)return;
+  const hidden=g.hiddenStatsNicks||[];
+  if(!hidden.length){alert('目前沒有隱藏的暱稱');return;}
+  openModal(`<h3>復原已成團統計</h3>
+    <p class="muted" style="margin-bottom:10px">選擇要恢復顯示的暱稱。</p>
+    <div style="max-height:55vh;overflow-y:auto">
+      ${hidden.map(n=>`<label style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #fdf1f6;cursor:pointer"><input type="checkbox" class="restoreStatNick" value="${esc(n)}" style="width:auto">${esc(n)}</label>`).join('')}
+    </div>
+    <div class="btn-row"><button class="bp" onclick="restoreHiddenStats(${g.id})">復原勾選</button><button onclick="closeModal()">取消</button></div>`);
+}
+function restoreHiddenStats(gid){
+  const picks=[...document.querySelectorAll('.restoreStatNick:checked')].map(x=>x.value);
+  if(!picks.length){alert('請先勾選要復原的暱稱');return;}
+  upG(gid,g=>{
+    const pickSet=new Set(picks);
+    g.hiddenStatsNicks=(g.hiddenStatsNicks||[]).filter(n=>!pickSet.has(n));
+  });
+  closeModal();render();
 }
 
 // ── Pay Tab (收款狀況，存於 g.pay) ──
@@ -1323,11 +1381,13 @@ function renderGroupSettingsTab(g){
       <div class="form-group"><label>性質</label>
         <select id="gsType">${Object.entries(getTypes()).map(([k,v])=>`<option value="${k}" ${g.type===k?'selected':''}>${v.label}</option>`).join('')}</select></div>
     </div>
-    ${gCoverField(g.cover||'')}
+    ${gCoverField(g.cover||'',g.coverPosX,g.coverPosY)}
     <div class="form-row">
       <div class="form-group"><label>開團日期</label><input id="gsDate" type="date" value="${esc(dateVal)}"></div>
       <div class="form-group"><label>截止時間</label><input id="gsDeadline" type="datetime-local" value="${esc(g.deadline||'')}"></div>
     </div>
+    <div class="form-group" style="margin:10px 0"><label>官方預計出貨時間</label><input id="gsOfficialShip" value="${esc(g.officialShip||'')}" placeholder="例：2026/10 預定"></div>
+    <div class="form-group" style="margin:10px 0"><label>官網 / 官店網址</label><input id="gsOfficialUrl" value="${esc(g.officialUrl||'')}" placeholder="例：https://example.com"></div>
     <div class="form-row">
       <div class="form-group"><label>狀態</label>
         <select id="gsStatus">${getStatuses().map(s=>`<option ${g.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -1346,7 +1406,11 @@ function saveGroupSettings(id){
     g.status=$('#gsStatus').value;
     const dv=$('#gsDate').value;if(dv)g.createdAt=dv.replace(/-/g,'/');
     g.deadline=$('#gsDeadline').value||'';
+    g.officialShip=$('#gsOfficialShip').value.trim();
+    g.officialUrl=$('#gsOfficialUrl').value.trim();
     if(_gCover!==null)g.cover=_gCover;
+    g.coverPosX=parseInt($('#gCoverX')?.value)||50;
+    g.coverPosY=parseInt($('#gCoverY')?.value)||50;
   });
   render();
 }
@@ -1436,19 +1500,31 @@ function exportSummaryXls(gid){
 // Group CRUD
 // 團封面圖：null=未變更, ''=已移除, dataURL=新圖
 let _gCover=null;
+function coverPos(g){return `${g.coverPosX??50}% ${g.coverPosY??50}%`;}
+function updateGCoverPos(){
+  const x=parseInt($('#gCoverX')?.value)||50;
+  const y=parseInt($('#gCoverY')?.value)||50;
+  const prev=$('#gCoverPrev');if(prev)prev.style.objectPosition=`${x}% ${y}%`;
+}
+function coverFileToData(f,cb){imgFileToData(f,cb,1800,0.92);}
 function onGCoverChange(input){
-  imgFileToData(input.files[0],d=>{
+  coverFileToData(input.files[0],d=>{
     _gCover=d;
-    const prev=$('#gCoverPrev');if(prev){prev.src=d;prev.style.display='block';}
-  },600);
+    const prev=$('#gCoverPrev');if(prev){prev.src=d;prev.style.display='block';updateGCoverPos();}
+  });
 }
 function clearGCover(){_gCover='';const prev=$('#gCoverPrev');if(prev)prev.style.display='none';}
-function gCoverField(existing){
+function gCoverField(existing,posX,posY){
+  posX=posX??50;posY=posY??50;
   return `<div class="form-group" style="margin:10px 0"><label>預覽圖（選填，可直接 Ctrl+V 貼上）</label>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <input type="file" accept="image/*" onchange="onGCoverChange(this)" style="font-size:12px">
-      <img id="gCoverPrev" src="${existing||''}" style="display:${existing?'block':'none'};width:96px;height:60px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="showImg(this.src)">
+      <img id="gCoverPrev" src="${existing||''}" style="display:${existing?'block':'none'};width:120px;height:76px;object-fit:cover;object-position:${posX}% ${posY}%;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="showImg(this.src)">
       <button class="bs" onclick="clearGCover()">移除</button>
+    </div>
+    <div class="form-row" style="margin-top:8px">
+      <div class="form-group"><label>圖片左右位置</label><input id="gCoverX" type="range" min="0" max="100" value="${posX}" oninput="updateGCoverPos()"></div>
+      <div class="form-group"><label>圖片上下位置</label><input id="gCoverY" type="range" min="0" max="100" value="${posY}" oninput="updateGCoverPos()"></div>
     </div></div>`;
 }
 function showNewGroupModal(){
@@ -1459,11 +1535,13 @@ function showNewGroupModal(){
     <div class="form-group" style="margin:10px 0"><label>團名</label><input id="mGN" placeholder="例：XX 徽章拆盒第一團"></div>
     <div class="form-group" style="margin:10px 0"><label>性質</label>
       <select id="mGT">${Object.entries(getTypes()).map(([k,v])=>`<option value="${k}" ${k===S().defaultType?'selected':''}>${v.label} — ${v.desc}</option>`).join('')}</select></div>
-    ${gCoverField('')}
+    ${gCoverField('',50,50)}
     <div class="form-row">
       <div class="form-group"><label>開團時間</label><input id="mGDate" type="date" value="${today}"></div>
       <div class="form-group"><label>截團時間（選填）</label><input id="mGDL" type="datetime-local"></div>
     </div>
+    <div class="form-group" style="margin:10px 0"><label>官方預計出貨時間（選填）</label><input id="mGShip" placeholder="例：2026/10 預定"></div>
+    <div class="form-group" style="margin:10px 0"><label>官網 / 官店網址（選填）</label><input id="mGUrl" placeholder="例：https://example.com"></div>
     <div class="form-group" style="margin:10px 0"><label>說明（選填）</label><input id="mGD" placeholder="系列、截單日等"></div>
     <div class="btn-row"><button class="bp" onclick="createGroup()">建立</button><button onclick="closeModal()">取消</button></div>`);
   setTimeout(()=>$('#mGN').focus(),100);
@@ -1473,7 +1551,7 @@ function createGroup(){
   const db=loadDB();
   const dv=$('#mGDate').value; // YYYY-MM-DD
   const ds=dv?dv.replace(/-/g,'/'):'';
-  db.groups.push({id:db.nid++,name,type:$('#mGT').value,desc:$('#mGD').value.trim(),status:S().defaultStatus,createdAt:ds,deadline:$('#mGDL').value||'',cover:_gCover||'',orders:[],items:[],boxProducts:[],nOid:1,nIid:1,nBid:1});
+  db.groups.push({id:db.nid++,name,type:$('#mGT').value,desc:$('#mGD').value.trim(),status:S().defaultStatus,createdAt:ds,deadline:$('#mGDL').value||'',officialShip:$('#mGShip').value.trim(),officialUrl:$('#mGUrl').value.trim(),cover:_gCover||'',coverPosX:parseInt($('#gCoverX')?.value)||50,coverPosY:parseInt($('#gCoverY')?.value)||50,orders:[],items:[],boxProducts:[],nOid:1,nIid:1,nBid:1});
   saveDB(db);closeModal();render();
 }
 function showEditGroupModal(id){
@@ -1484,11 +1562,13 @@ function showEditGroupModal(id){
     <div class="form-group" style="margin:10px 0"><label>名稱</label><input id="mGN" value="${esc(g.name)}"></div>
     <div class="form-group" style="margin:10px 0"><label>性質</label>
       <select id="mGT">${Object.entries(getTypes()).map(([k,v])=>`<option value="${k}" ${g.type===k?'selected':''}>${v.label}</option>`).join('')}</select></div>
-    ${gCoverField(g.cover||'')}
+    ${gCoverField(g.cover||'',g.coverPosX,g.coverPosY)}
     <div class="form-row">
       <div class="form-group"><label>開團時間</label><input id="mGDate" type="date" value="${esc(dateVal)}"></div>
       <div class="form-group"><label>截團時間</label><input id="mGDL" type="datetime-local" value="${esc(g.deadline||'')}"></div>
     </div>
+    <div class="form-group" style="margin:10px 0"><label>官方預計出貨時間</label><input id="mGShip" value="${esc(g.officialShip||'')}" placeholder="例：2026/10 預定"></div>
+    <div class="form-group" style="margin:10px 0"><label>官網 / 官店網址</label><input id="mGUrl" value="${esc(g.officialUrl||'')}" placeholder="例：https://example.com"></div>
     <div class="form-group" style="margin:10px 0"><label>說明</label><input id="mGD" value="${esc(g.desc||'')}"></div>
     <div class="form-group" style="margin:10px 0"><label>狀態</label>
       <select id="mGS">${getStatuses().map(s=>`<option ${g.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -1500,7 +1580,11 @@ function saveGroupEdit(id){
     g.name=$('#mGN').value.trim()||g.name;g.type=$('#mGT').value;g.desc=$('#mGD').value.trim();g.status=$('#mGS').value;
     const dv=$('#mGDate').value;if(dv)g.createdAt=dv.replace(/-/g,'/');
     g.deadline=$('#mGDL').value||'';
+    g.officialShip=$('#mGShip').value.trim();
+    g.officialUrl=$('#mGUrl').value.trim();
     if(_gCover!==null)g.cover=_gCover;
+    g.coverPosX=parseInt($('#gCoverX')?.value)||50;
+    g.coverPosY=parseInt($('#gCoverY')?.value)||50;
   });
   closeModal();render();
 }
@@ -1887,9 +1971,10 @@ function collectBindItems(contents){
 function refreshBpModalInputs(){refreshPriceInputs();refreshBindInputs();}
 // 商品圖：縮圖存 localStorage（自動縮到 400px 寬內）
 let _bpImg=null; // null=未變更, ''=已移除, dataURL=新圖
-function imgFileToData(f,cb,max){
+function imgFileToData(f,cb,max,quality){
   if(!f)return;
   max=max||500;
+  quality=quality||0.75;
   const reader=new FileReader();
   reader.onload=e=>{
     const img=new Image();
@@ -1898,7 +1983,7 @@ function imgFileToData(f,cb,max){
       const cv=document.createElement('canvas');
       cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
       cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
-      cb(cv.toDataURL('image/jpeg',0.75));
+      cb(cv.toDataURL('image/jpeg',quality));
     };
     img.src=e.target.result;
   };
@@ -1951,10 +2036,10 @@ document.addEventListener('paste',e=>{
     if(it.type.startsWith('image/')){
       e.preventDefault();
       if(isBp)setBpImgFile(it.getAsFile());
-      else imgFileToData(it.getAsFile(),d=>{
+      else coverFileToData(it.getAsFile(),d=>{
         _gCover=d;
-        const prev=$('#gCoverPrev');if(prev){prev.src=d;prev.style.display='block';}
-      },600);
+        const prev=$('#gCoverPrev');if(prev){prev.src=d;prev.style.display='block';updateGCoverPos();}
+      });
       return;
     }
   }
@@ -2413,6 +2498,12 @@ function showImg(src){
   ov.querySelector('img').src=src;
   ov.style.display='flex';
 }
+function openOfficialUrl(urlEnc){
+  let url=decodeURIComponent(urlEnc||'').trim();
+  if(!url)return;
+  if(!/^https?:\/\//i.test(url))url='https://'+url;
+  window.open(url,'_blank','noopener');
+}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){const ov=document.getElementById('imgLightbox');if(ov)ov.style.display='none';}});
 
 // Modal & Util
@@ -2568,6 +2659,12 @@ document.addEventListener('click',e=>{
   editElementText(e.target);
 },true);
 (function(){
+  const restoreBtn=document.createElement('button');
+  restoreBtn.id='hiddenStatsBtn';
+  restoreBtn.textContent='復原統計';
+  restoreBtn.style.cssText='display:none;position:fixed;left:16px;bottom:16px;z-index:998;padding:8px 14px;border:1px solid #f0d7e2;border-radius:20px;background:#fff;cursor:pointer;font-size:13px;box-shadow:0 2px 10px rgba(0,0,0,.12)';
+  restoreBtn.onclick=showHiddenStatsModal;
+  document.body.appendChild(restoreBtn);
   const btn=document.createElement('button');
   btn.id='editTextBtn';
   btn.textContent='✏ 修改頁面內容';
