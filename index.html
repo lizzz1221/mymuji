@@ -538,7 +538,9 @@ function toggleBpDetail(pid){_bpOpen[pid]=!_bpOpen[pid];render();}
 let _spNick='',_spGid='',_spHide=false;
 function showShipModal(){
   const db=loadDB();
-  const nicks=[...new Set(db.groups.flatMap(g=>g.orders.map(o=>o.nick)))].sort();
+  const team=getTeam();
+  const nicks=Object.keys(team).sort();
+  if(_spNick&&!team[_spNick])_spNick='';
   let rowsHtml='';
   if(_spNick){
     const gs=_spGid?db.groups.filter(g=>g.id===parseInt(_spGid)):db.groups;
@@ -566,10 +568,10 @@ function showShipModal(){
         <div style="overflow-x:auto"><table><thead><tr><th>商品</th><th>數量</th><th>到貨</th><th>出貨</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
     if(!rowsHtml)rowsHtml='<div class="empty">無資料</div>';
-  } else rowsHtml='<div class="empty">請選擇暱稱</div>';
+  } else rowsHtml=nicks.length?'<div class="empty">請選擇固團成員暱稱</div>':'<div class="empty">尚未設定固團成員</div>';
   openModal(`<h3>個人貨況查詢</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
-      <select onchange="_spNick=this.value;showShipModal()"><option value="">暱稱</option>${nicks.map(n=>`<option value="${esc(n)}" ${_spNick===n?'selected':''}>${esc(n)}</option>`).join('')}</select>
+      <select onchange="_spNick=this.value;showShipModal()"><option value="">固團成員</option>${nicks.map(n=>`<option value="${esc(n)}" ${_spNick===n?'selected':''}>${esc(n)}</option>`).join('')}</select>
       <select onchange="_spGid=this.value;showShipModal()"><option value="">顯示全部</option>${db.groups.map(g=>`<option value="${g.id}" ${_spGid==g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
       <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap">
         <input type="checkbox" ${_spHide?'checked':''} onchange="_spHide=this.checked;showShipModal()">隱藏已出貨</label>
@@ -1248,8 +1250,7 @@ function renderBuyersTab(g){
   const allSorted=Object.entries(byB).sort((a,b)=>b[1].qty-a[1].qty);
   const sorted=allSorted.filter(([nick])=>!hiddenStats.has(nick));
   let h=`<div class="card"><h3>已成團統計 (${sorted.length})</h3>
-    ${g.type==='box'?'<p class="muted" style="margin-bottom:8px">僅列入已成團／含綁成團的配，未成團不計</p>':''}
-    ${hiddenStats.size?`<p class="muted" style="margin-bottom:8px">已隱藏 ${hiddenStats.size} 位，可用左下角「復原統計」恢復。</p>`:''}`;
+    ${g.type==='box'?'<p class="muted" style="margin-bottom:8px">僅列入已成團／含綁成團的配，未成團不計</p>':''}`;
   const isBox=g.type==='box';
   const hasAnyAdj=isBox&&(g.boxProducts||[]).some(p=>p.adjustPrice&&p.itemPrices);
   if(!sorted.length){h+=`<div class="empty">無買家</div>`;}
