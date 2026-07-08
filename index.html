@@ -69,11 +69,15 @@ td input,td select{padding:4px 6px;font-size:.95em;border-radius:6px}
 .nav-crumb:hover{color:var(--accent)}
 .nav-title{font-size:16px;font-weight:500}
 
-.group-card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:1rem 1.25rem;margin-bottom:10px;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(201,137,159,.07)}
-.group-card:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(201,137,159,.15);transform:translateY(-1px)}
-.group-card .top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
-.group-card .name{font-size:15px;font-weight:500}
-.group-card .meta{display:flex;gap:12px;margin-top:6px;font-size:12px;color:var(--ink-soft);flex-wrap:wrap}
+.group-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px}
+.group-card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:0;overflow:hidden;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(201,137,159,.07);display:flex;flex-direction:column}
+.group-card:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(201,137,159,.15);transform:translateY(-2px)}
+.gc-cover{width:100%;height:130px;object-fit:cover;display:block;background:var(--cream)}
+.gc-ph{display:flex;align-items:center;justify-content:center;font-size:36px;color:var(--line)}
+.gc-body{padding:10px 12px;display:flex;flex-direction:column;gap:4px;flex:1}
+.group-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+.group-card .name{font-size:1em;font-weight:500;line-height:1.35}
+.group-card .meta{display:flex;gap:6px 10px;font-size:.85em;color:var(--ink-soft);flex-wrap:wrap;margin-top:auto}
 
 .tabs{display:flex;gap:2px;margin-bottom:1rem;border-bottom:2px solid var(--accent-soft);flex-wrap:wrap}
 .tab{padding:6px 14px;cursor:pointer;border:none;background:none;font-size:.95em;color:var(--ink-soft);border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:10px 10px 0 0}
@@ -354,9 +358,13 @@ function renderHome(){
       ?['進行中','已截團待收款','收款中','已完成收款','已到貨'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`).join('')
       :Object.entries(TYPES).map(([k,v])=>`<span class="chip ${homeFilter===k?'active':''}" onclick="homeFilter='${k}';render()">${v.label}</span>`).join('')}</div>`;
 
+  // 依開團時間新→舊排列（同日以建立順序新的在前）
+  const byNew=(a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')||b.id-a.id;
+  active.sort(byNew);archived.sort(byNew);
+
   if(!active.length&&!archived.length) h+=`<div class="empty">還沒有團購，點「建立新團」開始</div>`;
-  for(const g of active) h+=groupCard(g);
-  if(archived.length){h+=`<h3 style="margin-top:1.5rem;color:#888780">已封存</h3>`;for(const g of archived) h+=groupCard(g,true);}
+  if(active.length){h+=`<div class="group-grid">`;for(const g of active) h+=groupCard(g);h+=`</div>`;}
+  if(archived.length){h+=`<h3 style="margin-top:1.5rem;color:#888780">已封存</h3><div class="group-grid">`;for(const g of archived) h+=groupCard(g,true);h+=`</div>`;}
   $('#app').innerHTML=h;
 }
 
@@ -373,9 +381,13 @@ function groupCard(g,dim){
     extra=`<span>${bp.length} 種商品</span><span>${totalComplete} 盒成團</span>`;
   }
   return `<div class="group-card" onclick="goGroup(${g.id})" style="${dim?'opacity:.6':''}">
-    <div class="top"><div style="display:flex;align-items:center;gap:8px"><span class="name">${esc(g.name)}</span><span class="badge ${ti.badge}">${ti.label}</span></div>
-    <span class="badge ${SB[g.status]||'b-gray'}">${g.status}</span></div>
-    <div class="meta"><span>${buyers} 位買家</span><span>${g.orders.length} 筆喊單</span><span>${totalQty} 件</span>${extra}<span>開團 ${g.createdAt}</span>${g.deadline?`<span>截團 ${g.deadline.replace('T',' ').replace(/-/g,'/')}</span>`:''}</div></div>`;
+    ${g.cover?`<img class="gc-cover" src="${g.cover}">`:`<div class="gc-cover gc-ph">🛍️</div>`}
+    <div class="gc-body">
+      <div class="top"><span class="name">${esc(g.name)}</span><span class="badge ${SB[g.status]||'b-gray'}">${g.status}</span></div>
+      <div><span class="badge ${ti.badge}">${ti.label}</span></div>
+      <div class="meta"><span>${buyers} 位買家</span><span>${g.orders.length} 筆喊單</span><span>${totalQty} 件</span>${extra}</div>
+      <div class="meta"><span>開團 ${g.createdAt}</span>${g.deadline?`<span>截團 ${g.deadline.replace('T',' ').replace(/-/g,'/')}</span>`:''}</div>
+    </div></div>`;
 }
 
 // ── Group Detail ──
@@ -1383,13 +1395,32 @@ function exportSummaryXls(gid){
 // ══════ Actions ══════
 
 // Group CRUD
+// 團封面圖：null=未變更, ''=已移除, dataURL=新圖
+let _gCover=null;
+function onGCoverChange(input){
+  imgFileToData(input.files[0],d=>{
+    _gCover=d;
+    const prev=$('#gCoverPrev');if(prev){prev.src=d;prev.style.display='block';}
+  },600);
+}
+function clearGCover(){_gCover='';const prev=$('#gCoverPrev');if(prev)prev.style.display='none';}
+function gCoverField(existing){
+  return `<div class="form-group" style="margin:10px 0"><label>預覽圖（選填，可直接 Ctrl+V 貼上）</label>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="file" accept="image/*" onchange="onGCoverChange(this)" style="font-size:12px">
+      <img id="gCoverPrev" src="${existing||''}" style="display:${existing?'block':'none'};width:96px;height:60px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="showImg(this.src)">
+      <button class="bs" onclick="clearGCover()">移除</button>
+    </div></div>`;
+}
 function showNewGroupModal(){
   const now=new Date();
   const today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  _gCover=null;
   openModal(`<h3>建立新團</h3>
     <div class="form-group" style="margin:10px 0"><label>團名</label><input id="mGN" placeholder="例：XX 徽章拆盒第一團"></div>
     <div class="form-group" style="margin:10px 0"><label>性質</label>
       <select id="mGT">${Object.entries(getTypes()).map(([k,v])=>`<option value="${k}" ${k===S().defaultType?'selected':''}>${v.label} — ${v.desc}</option>`).join('')}</select></div>
+    ${gCoverField('')}
     <div class="form-row">
       <div class="form-group"><label>開團時間</label><input id="mGDate" type="date" value="${today}"></div>
       <div class="form-group"><label>截團時間（選填）</label><input id="mGDL" type="datetime-local"></div>
@@ -1403,16 +1434,18 @@ function createGroup(){
   const db=loadDB();
   const dv=$('#mGDate').value; // YYYY-MM-DD
   const ds=dv?dv.replace(/-/g,'/'):'';
-  db.groups.push({id:db.nid++,name,type:$('#mGT').value,desc:$('#mGD').value.trim(),status:S().defaultStatus,createdAt:ds,deadline:$('#mGDL').value||'',orders:[],items:[],boxProducts:[],nOid:1,nIid:1,nBid:1});
+  db.groups.push({id:db.nid++,name,type:$('#mGT').value,desc:$('#mGD').value.trim(),status:S().defaultStatus,createdAt:ds,deadline:$('#mGDL').value||'',cover:_gCover||'',orders:[],items:[],boxProducts:[],nOid:1,nIid:1,nBid:1});
   saveDB(db);closeModal();render();
 }
 function showEditGroupModal(id){
   const g=getG(id);
   const dateVal=(g.createdAt||'').replace(/\//g,'-');
+  _gCover=null;
   openModal(`<h3>編輯團購</h3>
     <div class="form-group" style="margin:10px 0"><label>名稱</label><input id="mGN" value="${esc(g.name)}"></div>
     <div class="form-group" style="margin:10px 0"><label>性質</label>
       <select id="mGT">${Object.entries(getTypes()).map(([k,v])=>`<option value="${k}" ${g.type===k?'selected':''}>${v.label}</option>`).join('')}</select></div>
+    ${gCoverField(g.cover||'')}
     <div class="form-row">
       <div class="form-group"><label>開團時間</label><input id="mGDate" type="date" value="${esc(dateVal)}"></div>
       <div class="form-group"><label>截團時間</label><input id="mGDL" type="datetime-local" value="${esc(g.deadline||'')}"></div>
@@ -1428,6 +1461,7 @@ function saveGroupEdit(id){
     g.name=$('#mGN').value.trim()||g.name;g.type=$('#mGT').value;g.desc=$('#mGD').value.trim();g.status=$('#mGS').value;
     const dv=$('#mGDate').value;if(dv)g.createdAt=dv.replace(/-/g,'/');
     g.deadline=$('#mGDL').value||'';
+    if(_gCover!==null)g.cover=_gCover;
   });
   closeModal();render();
 }
@@ -1870,13 +1904,18 @@ function setBpImgFile(f){
   reader.readAsDataURL(f);
 }
 function onBpImgChange(input){setBpImgFile(input.files[0]);}
-// 商品 modal 開啟時，直接 Ctrl+V 貼上圖片
+// 商品/團封面 modal 開啟時，直接 Ctrl+V 貼上圖片
 document.addEventListener('paste',e=>{
-  if(!$('#bpImgPrev'))return;
+  const isBp=!!$('#bpImgPrev'),isCover=!!$('#gCoverPrev');
+  if(!isBp&&!isCover)return;
   for(const it of (e.clipboardData?.items||[])){
     if(it.type.startsWith('image/')){
       e.preventDefault();
-      setBpImgFile(it.getAsFile());
+      if(isBp)setBpImgFile(it.getAsFile());
+      else imgFileToData(it.getAsFile(),d=>{
+        _gCover=d;
+        const prev=$('#gCoverPrev');if(prev){prev.src=d;prev.style.display='block';}
+      },600);
       return;
     }
   }
