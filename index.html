@@ -117,6 +117,12 @@ td input,td select{padding:4px 6px;font-size:.95em;border-radius:6px}
 .gear-btn{width:32px;height:32px;border:none;background:none;cursor:pointer;font-size:18px;color:var(--ink-soft);display:flex;align-items:center;justify-content:center;border-radius:10px;padding:0}
 .gear-btn:hover{background:var(--accent-soft);color:var(--ink)}
 
+.search-wrap{display:flex;align-items:center;gap:2px;background:#fff;border-radius:16px;border:1px solid transparent;transition:all .25s}
+.search-wrap input{width:0;opacity:0;padding:0;border:none;background:none;transition:all .25s;font-size:.95em}
+.search-wrap input:focus{box-shadow:none}
+.search-wrap.open{border-color:var(--accent);box-shadow:0 2px 8px rgba(201,137,159,.15);padding-left:10px}
+.search-wrap.open input{width:150px;opacity:1;padding:6px 4px}
+
 .settings-section{margin-bottom:20px}
 .settings-section h3{border-bottom:1px solid var(--accent-soft);padding-bottom:6px}
 .setting-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #fdf1f6;gap:10px;flex-wrap:wrap}
@@ -342,15 +348,30 @@ function syncHiddenStatsBtn(){
   btn.textContent=count?`復原統計 (${count})`:'復原統計';
 }
 
+let homeSearch='',homeSearchOpen=false;
+function toggleHomeSearch(){
+  homeSearchOpen=!homeSearchOpen;
+  if(!homeSearchOpen)homeSearch='';
+  render();
+}
 function renderHome(){
   const db=loadDB();
-  const groups=homeFilter?db.groups.filter(g=>RO?g.status===homeFilter:g.type===homeFilter):db.groups;
+  let groups=homeFilter?db.groups.filter(g=>RO?g.status===homeFilter:g.type===homeFilter):db.groups;
+  if(homeSearch.trim()){
+    const q=homeSearch.trim().toLowerCase();
+    groups=groups.filter(g=>(g.name||'').toLowerCase().includes(q));
+  }
   const active=groups.filter(g=>g.status!=='已封存');
   const archived=groups.filter(g=>g.status==='已封存');
 
   const TYPES=getTypes();const st=S();
-  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${RO?'.3rem':'1rem'}">
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${RO?'.3rem':'1rem'};gap:6px">
     <h1 style="margin:0">${esc(st.appTitle)}</h1>
+    <div style="flex:1"></div>
+    <div class="search-wrap ${homeSearchOpen?'open':''}">
+      <input id="homeSearchInput" placeholder="搜尋團名…" value="${esc(homeSearch)}" oninput="homeSearch=this.value;render()">
+      <button class="gear-btn" onclick="toggleHomeSearch()" title="搜尋團名">${homeSearchOpen?'✕':'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/></svg>'}</button>
+    </div>
     <button class="gear-btn" onclick="showSettings()" title="設定">⚙</button></div>
     ${RO&&window.VIEWER_DB.publishedAt?`<div class="muted" style="margin-bottom:1rem">資料更新時間：${esc(window.VIEWER_DB.publishedAt)}</div>`:''}
     <div class="toolbar"><button class="bp" onclick="showNewGroupModal()">建立新團</button><button onclick="showFixedTeamModal()">固團成員</button><button onclick="showShipModal()">個人貨況查詢</button><button onclick="document.getElementById('importDataFile').click()">匯入 data.js</button><input id="importDataFile" type="file" accept=".js,.txt" style="display:none" onchange="importViewerData(this)"><button onclick="exportViewerData()">發布查詢資料</button><span class="muted">共 ${db.groups.length} 個團</span></div>
@@ -367,6 +388,11 @@ function renderHome(){
   if(archived.length){h+=`<h3 style="margin-top:1.5rem;color:#888780">已封存</h3><div class="group-grid">`;for(const g of archived) h+=groupCard(g,true);h+=`</div>`;}
   $('#app').innerHTML=h;
   syncHiddenStatsBtn();
+  // 搜尋展開時保持輸入焦點（重繪會失焦）
+  if(homeSearchOpen){
+    const inp=$('#homeSearchInput');
+    if(inp){inp.focus();const L=inp.value.length;inp.setSelectionRange(L,L);}
+  }
 }
 
 function groupCard(g,dim){
@@ -382,7 +408,7 @@ function groupCard(g,dim){
   return `<div class="group-card" onclick="goGroup(${g.id})" style="${dim?'opacity:.6':''}">
     ${g.cover?`<img class="gc-cover" src="${g.cover}" style="object-position:${coverPos(g)}">`:`<div class="gc-cover gc-ph"></div>`}
     <div class="gc-body">
-      <div class="top"><span class="name">${esc(g.name)}</span><span class="badge ${SB[g.status]||'b-gray'}">${g.status}</span></div>
+      <div class="top"><span class="name">${g.starGroup?'<span style="color:#d4a017">★</span> ':''}${esc(g.name)}</span><span class="badge ${SB[g.status]||'b-gray'}">${g.status}</span></div>
       <div><span class="badge ${ti.badge}">${ti.label}</span></div>
       <div class="meta"><span>${buyers} 人</span><span>${productCount} 種商品</span></div>
       <div class="meta"><span>${openDate} ~ ${closeDate}</span></div>
@@ -552,7 +578,7 @@ function showShipModal(){
             ?`<span class="badge b-amber">囤貨期限 ${ds}（剩 ${days} 天）</span>`
             :`<span class="badge b-gray">囤貨期限 ${ds}</span>`;
       }
-      if(rows)rowsHtml+=`<h3 style="margin:10px 0 4px">${esc(g.name)} ${storageLine}</h3>
+      if(rows)rowsHtml+=`<h3 style="margin:10px 0 4px"><span onclick="closeModal();goGroup(${g.id})" style="cursor:pointer;color:var(--accent);text-decoration:underline dotted" title="前往該團">${esc(g.name)}</span> ${storageLine}</h3>
         <div style="overflow-x:auto"><table><thead><tr><th>商品</th><th>數量</th><th>到貨</th><th>出貨</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
     if(!rowsHtml)rowsHtml='<div class="empty">無資料</div>';
@@ -585,7 +611,11 @@ function toggleShipKey(gid,keyEnc,field){
 
 function exportViewerData(){
   const db=loadDB();
-  const groups=db.groups.filter(g=>g.type==='box');
+  // 深拷貝後剝除私人資料（收款的個人備註不公開）
+  const groups=JSON.parse(JSON.stringify(db.groups.filter(g=>g.type==='box')));
+  for(const g of groups){
+    for(const nick of Object.keys(g.pay||{}))delete g.pay[nick].pnote;
+  }
   if(!groups.length){alert('沒有可發布的拆盒團資料');return;}
   const pub={
     groups,
@@ -668,13 +698,41 @@ function ftAddSlot(btn){
   member.querySelector('.ftSlots').insertAdjacentHTML('beforeend',ftSlotChip(s,posObj));
   inp.value='';
 }
-let _ftTeam={},_ftNotes={};
+let _ftTeam={},_ftNotes={},_ftPass={};
+// 固位 pass 統計：特殊團（★）截團後，固位成員沒喊自己固位角色的商品即算一次 pass（連續累計）
+// 只要在較新的特殊團裡有喊該角色，之前累積的 pass 次數就歸零重新算起
+// 條件：該團有販售該角色（在某商品的款式中）；有喊單（綁單不算）即中斷連續紀錄
+function passStats(){
+  const team=getTeam();
+  // 依開團時間新→舊排序，逐團往回推算「連續 pass 次數」
+  const byNew=(a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')||b.id-a.id;
+  const starGroups=loadDB().groups.filter(g=>g.type==='box'&&g.starGroup&&g.status!=='進行中').sort(byNew);
+  const res={};
+  for(const[nick,slots]of Object.entries(team)){
+    for(const[style,pos]of Object.entries(slots||{})){
+      if(pos.t!=='slot')continue; // 只監控固位角色
+      let count=0;
+      for(const g of starGroups){
+        const styles=new Set((g.boxProducts||[]).flatMap(p=>p.contents));
+        if(!styles.has(style))continue; // 該團沒賣這個角色不算
+        const hasOrder=g.orders.some(o=>!o.bind&&o.nick===nick&&o.item===style);
+        if(hasOrder)break; // 有喊單 → 中斷連續紀錄，之前的 pass 不列入
+        count++;
+      }
+      if(count>0){res[nick]=res[nick]||{};res[nick][style]=count;}
+    }
+  }
+  return res;
+}
 function ftOverviewRow(nick,slots){
   const summary=Object.entries(slots||{}).map(([s,pos])=>`${esc(s)} ${pos.t==='pick'?'撿漏':'固'+(pos.r||1)}`).join('、')||'<span class="muted">（無角色位）</span>';
   const note=_ftNotes[nick]?`<span class="muted" style="font-size:11px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis">${esc(_ftNotes[nick])}</span>`:'';
+  const passHtml=Object.entries(_ftPass[nick]||{}).map(([s,n])=>
+    `<span class="badge ${n>=2?'b-red':'b-amber'}" title="★${esc(s)} pass ${n} 次${n>=2?'，建議撤銷固位':''}">${n>=2?'⚠ ':''}★${esc(s)}×${n}</span>`).join(' ');
   return `<div class="ft-row" data-nick="${esc(nick)}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:.5px solid #fdf1f6">
     <strong style="color:#a32d2d;white-space:nowrap">${esc(nick)}</strong>
     <span style="flex:1;font-size:12px">${summary}</span>
+    ${passHtml}
     ${note}
     <button class="bs" onclick="ftExpand(this)">編輯</button></div>`;
 }
@@ -697,8 +755,12 @@ function ftStyleView(){
   for(const s of keys){
     const slots=byStyle[s].filter(x=>x.pos.t==='slot').sort((a,b)=>(a.pos.r||1)-(b.pos.r||1));
     const picks=byStyle[s].filter(x=>x.pos.t==='pick');
-    const slotChips=slots.map(x=>`<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #e0ddf5;border-radius:12px;padding:2px 8px 2px 3px;font-size:12px;white-space:nowrap">
-      <span style="background:#534ab7;color:#fff;border-radius:50%;width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;flex-shrink:0">${x.pos.r||1}</span>${esc(x.nick)}</span>`).join('');
+    const slotChips=slots.map(x=>{
+      const passN=(_ftPass[x.nick]||{})[s]||0;
+      const passBadge=passN>0?` <span style="color:${passN>=2?'#a32d2d':'#c08a3e'};font-weight:bold">${passN>=2?'⚠':''}pass${passN}</span>`:'';
+      return `<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid ${passN>=2?'#f3b8c4':'#e0ddf5'};border-radius:12px;padding:2px 8px 2px 3px;font-size:12px;white-space:nowrap">
+      <span style="background:#534ab7;color:#fff;border-radius:50%;width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;flex-shrink:0">${x.pos.r||1}</span>${esc(x.nick)}${passBadge}</span>`;
+    }).join('');
     const pickChips=picks.map(x=>`<span style="display:inline-flex;align-items:center;background:#fff;border:1px solid #cfe5e2;border-radius:12px;padding:2px 8px;font-size:12px;white-space:nowrap">${esc(x.nick)}</span>`).join('');
     h+=`<div style="background:#fef7fa;border-radius:10px;padding:10px;border:1px solid #fdf1f6">
       <div style="font-weight:bold;font-size:14px;margin-bottom:8px;padding-bottom:5px;border-bottom:2px solid #534ab7">${esc(s)}</div>
@@ -720,6 +782,7 @@ function showFixedTeamModal(keepTeam){
     _ftTeam=JSON.parse(JSON.stringify(getTeam()));
     _ftNotes=JSON.parse(JSON.stringify(loadDB().teamNotes||{}));
   }
+  _ftPass=passStats();
   const isStyle=_ftView==='style';
   let h=`<h3>固團成員（跨團共用）</h3>
     <div style="display:flex;gap:4px;margin-bottom:10px">
@@ -1295,7 +1358,7 @@ function renderPayTab(g){
   let h=`<div class="card"><h3>收款狀況</h3>`;
   if(!sorted.length){h+=`<div class="empty">無資料</div>`;}
   else{
-    h+=`<div style="overflow-x:auto"><table><thead><tr><th>暱稱</th><th>應付總額</th><th>已收款項</th><th>狀態</th><th>備註</th><th></th></tr></thead><tbody>`;
+    h+=`<div style="overflow-x:auto"><table><thead><tr><th>暱稱</th><th>應付總額</th><th>已收款項</th><th>狀態</th><th>備註</th>${RO?'':'<th>個人備註</th>'}<th></th></tr></thead><tbody>`;
     for(const[nick,computed]of sorted){
       const p=pay[nick]||{paid:0,note:''};
       const total=payTotal(g,nick,computed);
@@ -1309,6 +1372,7 @@ function renderPayTab(g){
       h+=`<tr><td>${team[nick]?`<span style="color:#a32d2d;font-weight:bold">${esc(nick)}</span>`:esc(nick)}</td>
         <td>$${total.toLocaleString()}${isOv?'<span style="color:#d16277;font-weight:bold">*</span>':''}</td><td>${p.paid?'$'+p.paid.toLocaleString():'-'}</td><td>${st}</td>
         <td class="muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'')}</td>
+        ${RO?'':`<td class="muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#8a75c9">${esc(p.pnote||'')}</td>`}
         <td><button class="bs bg" onclick="showPayModal(${g.id},'${encodeURIComponent(nick)}')">編輯</button></td></tr>`;
     }
     h+=`</tbody></table></div>`;
@@ -1327,7 +1391,8 @@ function showPayModal(gid,nickEnc){
       <div class="form-group"><label>應付總額（改動後會標 *）</label><input id="payTotal" type="number" min="0" value="${total}"></div>
       <div class="form-group"><label>已收款項</label><input id="payAmt" type="number" min="0" value="${p.paid||''}"></div>
     </div>
-    <div class="form-group" style="margin-bottom:10px"><label>備註</label><input id="payNote" value="${esc(p.note||'')}"></div>
+    <div class="form-group" style="margin-bottom:10px"><label>備註（團員看得到）</label><input id="payNote" value="${esc(p.note||'')}"></div>
+    <div class="form-group" style="margin-bottom:10px"><label>個人備註（僅後台可見）</label><input id="payPNote" value="${esc(p.pnote||'')}"></div>
     <div class="btn-row">
       <button class="bs" onclick="document.getElementById('payAmt').value=document.getElementById('payTotal').value">填入全額</button>
       <button class="bs" onclick="document.getElementById('payTotal').value=${computed}">還原系統計算</button>
@@ -1339,10 +1404,12 @@ function savePay(gid,nickEnc,computed){
   const nick=decodeURIComponent(nickEnc);
   const paid=parseFloat($('#payAmt').value)||0;
   const note=$('#payNote').value.trim();
+  const pnote=$('#payPNote').value.trim();
   const totalIn=parseFloat($('#payTotal').value);
   upG(gid,g=>{
     if(!g.pay)g.pay={};
     const rec={paid,note};
+    if(pnote)rec.pnote=pnote;
     if(!isNaN(totalIn)&&totalIn!==computed)rec.totalOv=totalIn;
     g.pay[nick]=rec;
   });
@@ -1368,6 +1435,10 @@ function renderGroupSettingsTab(g){
     </div>
     <div class="form-group" style="margin:10px 0"><label>官方預計出貨時間</label><input id="gsOfficialShip" value="${esc(g.officialShip||'')}" placeholder="例：2026/10 預定"></div>
     <div class="form-group" style="margin:10px 0"><label>官網 / 官店網址</label><input id="gsOfficialUrl" value="${esc(g.officialUrl||'')}" placeholder="例：https://example.com"></div>
+    <div class="form-group" style="margin:10px 0"><label>特殊團（★｜固位 pass 監控）</label>
+      <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="gsStar" ${g.starGroup?'checked':''}>★ 標記為特殊團
+        <span class="muted" style="font-size:11px">固團成員沒喊自己固位角色的商品即算一次 pass</span></label></div>
     <div class="form-row">
       <div class="form-group"><label>狀態</label>
         <select id="gsStatus">${getStatuses().map(s=>`<option ${g.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -1398,6 +1469,7 @@ function saveGroupSettings(id){
     g.deadline=$('#gsDeadline').value||'';
     g.officialShip=$('#gsOfficialShip').value.trim();
     g.officialUrl=$('#gsOfficialUrl').value.trim();
+    g.starGroup=$('#gsStar')?.checked||false;
     if(_gCover!==null)g.cover=_gCover;
     g.coverPosX=parseInt($('#gCoverX')?.value)||50;
     g.coverPosY=parseInt($('#gCoverY')?.value)||50;
@@ -1557,12 +1629,16 @@ function showEditGroupModal(id){
     <div class="form-group" style="margin:10px 0"><label>說明</label><input id="mGD" value="${esc(g.desc||'')}"></div>
     <div class="form-group" style="margin:10px 0"><label>狀態</label>
       <select id="mGS">${getStatuses().map(s=>`<option ${g.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap;margin-top:6px">
+      <input type="checkbox" id="mGStar" ${g.starGroup?'checked':''}>★ 標記為特殊團
+      <span class="muted" style="font-size:11px">固團成員沒喊自己固位角色的商品即算一次 pass</span></label>
     <div class="btn-row"><button class="bp" onclick="saveGroupEdit(${id})">儲存</button><button onclick="closeModal()">取消</button>
     <div style="flex:1"></div><button class="bd" onclick="deleteGroup(${id})">刪除此團</button></div>`);
 }
 function saveGroupEdit(id){
   upG(id,g=>{
     g.name=$('#mGN').value.trim()||g.name;g.type=$('#mGT').value;g.desc=$('#mGD').value.trim();g.status=$('#mGS').value;
+    g.starGroup=$('#mGStar')?.checked||false;
     markArrival(g,g.status);
     const dv=$('#mGDate').value;if(dv)g.createdAt=dv.replace(/-/g,'/');
     g.deadline=$('#mGDL').value||'';
@@ -2630,7 +2706,7 @@ document.addEventListener('click',e=>{
 })();
 function stripEditUI(){
   if(!RO)return;
-  const ok=/^\s*(goGroup|goHome|homeFilter|tab='|toggleBpDetail|showImg|event\.stopPropagation\(\);(showImg|openOfficialUrl)|closeModal|showShipModal|_sp(Nick|Gid|Hide)|doExport|exportXls|exportSummaryXls|if\(event\.target)/;
+  const ok=/^\s*(goGroup|goHome|homeFilter|toggleHomeSearch|tab='|toggleBpDetail|showImg|event\.stopPropagation\(\);(showImg|openOfficialUrl)|closeModal|showShipModal|_sp(Nick|Gid|Hide)|doExport|exportXls|exportSummaryXls|if\(event\.target)/;
   document.querySelectorAll('[onclick]').forEach(el=>{
     const oc=el.getAttribute('onclick')||'';
     if(ok.test(oc))return;
