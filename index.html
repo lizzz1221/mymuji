@@ -2797,7 +2797,7 @@ document.addEventListener('click',e=>{
 })();
 function stripEditUI(){
   if(!RO)return;
-  const ok=/^\s*(goGroup|goHome|homeFilter|toggleHomeSearch|tab='|toggleBpDetail|showImg|event\.stopPropagation\(\);(showImg|openOfficialUrl)|closeModal|showShipModal|_sp(Nick|Gid|Hide)|doExport|exportXls|exportSummaryXls|if\(event\.target)/;
+  const ok=/^\s*(goGroup|goHome|homeFilter|toggleHomeSearch|homeSearch=|tab='|toggleBpDetail|showImg|event\.stopPropagation\(\);(showImg|openOfficialUrl)|closeModal|showShipModal|_sp(Nick|Gid|Hide)|doExport|exportXls|exportSummaryXls|if\(event\.target)/;
   document.querySelectorAll('[onclick]').forEach(el=>{
     const oc=el.getAttribute('onclick')||'';
     if(ok.test(oc))return;
