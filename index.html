@@ -310,6 +310,7 @@ function loadDB(){
   }
   if(!db.fixedTeam)db.fixedTeam={};
   if(!db.teamNotes)db.teamNotes={};
+  if(!db.units)db.units=[]; // 團體庫：{id,name,icon}
   for(const g of db.groups){
     if(g.fixedTeam){
       for(const[nick,slots]of Object.entries(g.fixedTeam)){
@@ -359,22 +360,29 @@ function renderHome(){
   let groups=homeFilter?db.groups.filter(g=>RO?g.status===homeFilter:g.type===homeFilter):db.groups;
   if(homeSearch.trim()){
     const q=homeSearch.trim().toLowerCase();
-    groups=groups.filter(g=>(g.name||'').toLowerCase().includes(q));
+    groups=groups.filter(g=>{
+      if((g.name||'').toLowerCase().includes(q))return true;
+      const styles=(g.boxProducts||[]).flatMap(p=>[p.name,...(p.contents||[])]);
+      const carryItems=(g.items||[]).map(i=>i.name);
+      return [...styles,...carryItems].some(s=>(s||'').toLowerCase().includes(q));
+    });
   }
   const active=groups.filter(g=>g.status!=='已封存');
   const archived=groups.filter(g=>g.status==='已封存');
 
   const TYPES=getTypes();const st=S();
+  const searchIcon='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/></svg>';
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${RO?'.3rem':'1rem'};gap:6px">
     <h1 style="margin:0">${esc(st.appTitle)}</h1>
     <div style="flex:1"></div>
     <div class="search-wrap ${homeSearchOpen?'open':''}">
-      <input id="homeSearchInput" placeholder="搜尋團名…" value="${esc(homeSearch)}" oninput="homeSearch=this.value;render()">
-      <button class="gear-btn" onclick="toggleHomeSearch()" title="搜尋團名">${homeSearchOpen?'✕':'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/></svg>'}</button>
+      <input id="homeSearchInput" placeholder="搜尋團名…" value="${esc(homeSearch)}" onkeydown="if(event.key==='Enter'){homeSearch=this.value;render();}">
+      ${homeSearchOpen?`<button class="gear-btn" onclick="homeSearch=document.getElementById('homeSearchInput').value;render()" title="搜尋">${searchIcon}</button>`:''}
+      <button class="gear-btn" onclick="toggleHomeSearch()" title="${homeSearchOpen?'關閉搜尋':'搜尋團名'}">${homeSearchOpen?'✕':searchIcon}</button>
     </div>
     <button class="gear-btn" onclick="showSettings()" title="設定">⚙</button></div>
     ${RO&&window.VIEWER_DB.publishedAt?`<div class="muted" style="margin-bottom:1rem">資料更新時間：${esc(window.VIEWER_DB.publishedAt)}</div>`:''}
-    <div class="toolbar"><button class="bp" onclick="showNewGroupModal()">建立新團</button><button onclick="showFixedTeamModal()">固團成員</button><button onclick="showShipModal()">個人貨況查詢</button><button onclick="document.getElementById('importDataFile').click()">匯入 data.js</button><input id="importDataFile" type="file" accept=".js,.txt" style="display:none" onchange="importViewerData(this)"><button onclick="exportViewerData()">發布查詢資料</button><span class="muted">共 ${db.groups.length} 個團</span></div>
+    <div class="toolbar"><button class="bp" onclick="showNewGroupModal()">建立新團</button><button onclick="showFixedTeamModal()">固團成員</button><button onclick="showUnitsModal()">團體管理</button><button onclick="showShipModal()">個人貨況查詢</button><button onclick="document.getElementById('importDataFile').click()">匯入 data.js</button><input id="importDataFile" type="file" accept=".js,.txt" style="display:none" onchange="importViewerData(this)"><button onclick="exportViewerData()">發布查詢資料</button><span class="muted">共 ${db.groups.length} 個團</span></div>
     <div class="filter-chips"><span class="chip ${homeFilter===''?'active':''}" onclick="homeFilter='';render()">全部</span>
     ${RO
       ?['進行中','已截團待收款','收款中','已完成收款','已到貨'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`).join('')
@@ -396,6 +404,7 @@ function renderHome(){
 }
 
 function groupCard(g,dim){
+  const allUnits=getUnits();
   const buyers=new Set(g.orders.map(o=>o.nick)).size;
   let productCount=0;
   if(g.type==='box')productCount=(g.boxProducts||[]).length;
@@ -410,7 +419,7 @@ function groupCard(g,dim){
     <div class="gc-body">
       <div class="top"><span class="name">${g.starGroup?'<span style="color:#d4a017">★</span> ':''}${esc(g.name)}</span><span class="badge ${SB[g.status]||'b-gray'}">${g.status}</span></div>
       <div><span class="badge ${ti.badge}">${ti.label}</span></div>
-      <div class="meta"><span>${buyers} 人</span><span>${productCount} 種商品</span></div>
+      <div class="meta"><span>${buyers} 人</span><span>${productCount} 種商品</span>${(g.unitIds||[]).length?`<span style="display:inline-flex;gap:3px;align-items:center">${g.unitIds.map(id=>{const u=allUnits.find(x=>x.id===id);return u?(u.icon?`<img src="${u.icon}" title="${esc(u.name)}" style="width:18px;height:18px;object-fit:cover;border-radius:4px">`:`<span title="${esc(u.name)}" style="font-size:11px;padding:1px 5px;background:var(--accent-soft);border-radius:8px">${esc(u.name)}</span>`):'';}).join('')}</span>`:''}</div>
       <div class="meta"><span>${openDate} ~ ${closeDate}</span></div>
     </div></div>`;
 }
@@ -578,15 +587,20 @@ function showShipModal(){
             ?`<span class="badge b-amber">囤貨期限 ${ds}（剩 ${days} 天）</span>`
             :`<span class="badge b-gray">囤貨期限 ${ds}</span>`;
       }
-      if(rows)rowsHtml+=`<h3 style="margin:10px 0 4px"><span onclick="closeModal();goGroup(${g.id})" style="cursor:pointer;color:var(--accent);text-decoration:underline dotted" title="前往該團">${esc(g.name)}</span> ${storageLine}</h3>
+      if(rows)rowsHtml+=`<h3 style="margin:10px 0 4px"><span onclick="closeModal();goGroup(${g.id})" style="cursor:pointer;color:var(--accent)" title="前往該團">${esc(g.name)}</span> ${storageLine}</h3>
         <div style="overflow-x:auto"><table><thead><tr><th>商品</th><th>數量</th><th>到貨</th><th>出貨</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
     if(!rowsHtml)rowsHtml='<div class="empty">無資料</div>';
   } else rowsHtml=nicks.length?'<div class="empty">請選擇固團成員暱稱</div>':'<div class="empty">尚未設定固團成員</div>';
+  // 未選暱稱時團名下拉只有「顯示全部」；選了暱稱後才列出該成員有喊單的團
+  const gidOptions=_spNick
+    ?db.groups.filter(g=>getConfirmedOrders(g).some(o=>o.nick===_spNick))
+    :[];
+  if(_spGid&&!gidOptions.some(g=>g.id===parseInt(_spGid)))_spGid='';
   openModal(`<h3>個人貨況查詢</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
-      <select onchange="_spNick=this.value;showShipModal()"><option value="">固團成員</option>${nicks.map(n=>`<option value="${esc(n)}" ${_spNick===n?'selected':''}>${esc(n)}</option>`).join('')}</select>
-      <select onchange="_spGid=this.value;showShipModal()"><option value="">顯示全部</option>${db.groups.map(g=>`<option value="${g.id}" ${_spGid==g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
+      <select onchange="_spNick=this.value;_spGid='';showShipModal()"><option value="">固團成員</option>${nicks.map(n=>`<option value="${esc(n)}" ${_spNick===n?'selected':''}>${esc(n)}</option>`).join('')}</select>
+      <select onchange="_spGid=this.value;showShipModal()"><option value="">顯示全部</option>${gidOptions.map(g=>`<option value="${g.id}" ${_spGid==g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
       <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap">
         <input type="checkbox" ${_spHide?'checked':''} onchange="_spHide=this.checked;showShipModal()">隱藏已出貨</label>
     </div>
@@ -623,6 +637,7 @@ function exportViewerData(){
     fixedTeam:db.fixedTeam||{}, // 排單需要固團位子才會與管理端一致
     teamNotes:{},               // 成員備註不公開
     buyers:{},                  // 聯絡方式與截圖不公開
+    units:db.units||[],         // 團體圖示庫，供首頁卡片顯示
     publishedAt:new Date().toLocaleString('zh-TW')
   };
   const file='window.VIEWER_DB='+JSON.stringify(pub)+
@@ -836,6 +851,74 @@ function saveFixedTeam(){
   });
   const db=loadDB();db.fixedTeam=team;db.teamNotes=notes;saveDB(db);
   closeModal();render();
+}
+
+// ── 團體庫（跨團共用，存於 db.units：{id,name,icon}） ──
+let _unitIconTmp=null;
+function getUnits(){return loadDB().units||[];}
+function onUnitIconChange(input){
+  imgFileToData(input.files[0],d=>{
+    _unitIconTmp=d;
+    const prev=$('#unitIconPrev');if(prev){prev.src=d;prev.style.display='inline-block';}
+  },120,0.85);
+}
+document.addEventListener('paste',e=>{
+  if(!$('#unitIconPrev'))return;
+  for(const it of(e.clipboardData?.items||[])){
+    if(it.type.startsWith('image/')){
+      e.preventDefault();
+      imgFileToData(it.getAsFile(),d=>{
+        _unitIconTmp=d;
+        const prev=$('#unitIconPrev');if(prev){prev.src=d;prev.style.display='inline-block';}
+      },120,0.85);
+      return;
+    }
+  }
+});
+function showUnitsModal(){
+  const units=getUnits();
+  _unitIconTmp=null;
+  let h=`<h3>團體管理</h3>
+    <p class="muted" style="margin-bottom:10px">新增團體圖示，供各團在「團內設定」勾選標示所屬團體，會顯示在首頁團卡片上。</p>
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap">
+      <div class="form-group" style="flex:1;min-width:120px"><label>團體名稱</label><input id="unitName" placeholder="例：Ave Mujica"></div>
+      <div class="form-group"><label>圖示（可貼上）</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input type="file" accept="image/*" onchange="onUnitIconChange(this)" style="font-size:12px">
+          <img id="unitIconPrev" style="display:none;width:28px;height:28px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">
+        </div></div>
+      <button class="bs bp" onclick="addUnit()">新增</button>
+    </div>
+    <div id="unitList" style="display:flex;flex-wrap:wrap;gap:8px">`;
+  h+=units.map(u=>unitChip(u)).join('')||'<span class="muted">尚未建立團體</span>';
+  h+=`</div><div class="btn-row" style="margin-top:14px"><button onclick="closeModal()">關閉</button></div>`;
+  openModal(h);
+}
+function unitChip(u){
+  return `<span class="unit-chip" data-id="${u.id}" style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:3px 10px 3px 4px">
+    ${u.icon?`<img src="${u.icon}" style="width:22px;height:22px;object-fit:cover;border-radius:5px">`:'<span style="width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;background:var(--accent-soft);border-radius:5px;font-size:11px">?</span>'}
+    <span style="font-size:12px">${esc(u.name)}</span>
+    <span onclick="delUnit(${u.id})" style="cursor:pointer;color:#a32d2d;font-weight:bold;font-size:12px" title="刪除團體">✕</span></span>`;
+}
+function addUnit(){
+  const name=$('#unitName').value.trim();
+  if(!name){alert('請輸入團體名稱');return;}
+  const db=loadDB();
+  if(!db.units)db.units=[];
+  if(!db.unitNid)db.unitNid=1;
+  db.units.push({id:db.unitNid++,name,icon:_unitIconTmp||''});
+  saveDB(db);
+  $('#unitList').innerHTML=db.units.map(u=>unitChip(u)).join('');
+  $('#unitName').value='';_unitIconTmp=null;
+  const prev=$('#unitIconPrev');if(prev)prev.style.display='none';
+}
+function delUnit(id){
+  if(!confirm('刪除此團體？已勾選此團體的團會一併移除關聯。'))return;
+  const db=loadDB();
+  db.units=(db.units||[]).filter(u=>u.id!==id);
+  for(const g of db.groups){if(g.unitIds)g.unitIds=g.unitIds.filter(x=>x!==id);}
+  saveDB(db);
+  $('#unitList').innerHTML=db.units.map(u=>unitChip(u)).join('')||'<span class="muted">尚未建立團體</span>';
 }
 
 function toggleFixEnd(gid){
@@ -1439,6 +1522,13 @@ function renderGroupSettingsTab(g){
       <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="gsStar" ${g.starGroup?'checked':''}>★ 標記為特殊團
         <span class="muted" style="font-size:11px">固團成員沒喊自己固位角色的商品即算一次 pass</span></label></div>
+    <div class="form-group" style="margin:10px 0"><label>包含的團體</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 14px">
+      ${getUnits().length?getUnits().map(u=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" class="gsUnit" value="${u.id}" ${(g.unitIds||[]).includes(u.id)?'checked':''}>
+        ${u.icon?`<img src="${u.icon}" style="width:18px;height:18px;object-fit:cover;border-radius:4px">`:''}${esc(u.name)}</label>`).join('')
+        :'<span class="muted">尚未建立團體，請至「團體管理」新增</span>'}
+      </div></div>
     <div class="form-row">
       <div class="form-group"><label>狀態</label>
         <select id="gsStatus">${getStatuses().map(s=>`<option ${g.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -1470,6 +1560,7 @@ function saveGroupSettings(id){
     g.officialShip=$('#gsOfficialShip').value.trim();
     g.officialUrl=$('#gsOfficialUrl').value.trim();
     g.starGroup=$('#gsStar')?.checked||false;
+    g.unitIds=[...document.querySelectorAll('.gsUnit:checked')].map(cb=>parseInt(cb.value));
     if(_gCover!==null)g.cover=_gCover;
     g.coverPosX=parseInt($('#gCoverX')?.value)||50;
     g.coverPosY=parseInt($('#gCoverY')?.value)||50;
