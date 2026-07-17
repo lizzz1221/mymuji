@@ -383,6 +383,12 @@ function renderHome(){
     <button class="gear-btn" onclick="showSettings()" title="設定">⚙</button></div>
     ${RO&&window.VIEWER_DB.publishedAt?`<div class="muted" style="margin-bottom:1rem">資料更新時間：${esc(window.VIEWER_DB.publishedAt)}</div>`:''}
     <div class="toolbar"><button class="bp" onclick="showNewGroupModal()">建立新團</button><button onclick="showFixedTeamModal()">固團成員</button><button onclick="showUnitsModal()">團體管理</button><button onclick="showShipModal()">個人貨況查詢</button><button onclick="document.getElementById('importDataFile').click()">匯入 data.js</button><input id="importDataFile" type="file" accept=".js,.txt" style="display:none" onchange="importViewerData(this)"><button onclick="exportViewerData()">發布查詢資料</button><span class="muted">共 ${db.groups.length} 個團</span></div>
+    <div class="toolbar" style="margin-top:-4px">
+      <button class="bs" onclick="exportFullBackup()" title="匯出含全部團與私人資料的完整備份，用於裝置間手動同步">📦 匯出完整備份</button>
+      <button class="bs" onclick="document.getElementById('importBackupFile').click()" title="匯入完整備份，會覆蓋此裝置的所有資料">📥 匯入完整備份</button>
+      <input id="importBackupFile" type="file" accept=".json" style="display:none" onchange="importFullBackup(this)">
+      <span class="muted" style="font-size:11px">兩裝置間手動同步用（不影響團員看到的畫面）</span>
+    </div>
     <div class="filter-chips"><span class="chip ${homeFilter===''?'active':''}" onclick="homeFilter='';render()">全部</span>
     ${RO
       ?['進行中','已截團待收款','收款中','已完成收款','已到貨'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`).join('')
@@ -646,6 +652,47 @@ function exportViewerData(){
   const blob=new Blob([file],{type:'text/javascript'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='data.js';a.click();
   alert('已下載 data.js。\n把「index.html＋data.js」一起上傳到網站空間（index.html 有 data.js 在旁邊時會自動變成唯讀查詢版）。\n之後資料更新，只要重新發布並覆蓋 data.js。');
+}
+// ── 完整備份（給自己兩台裝置手動同步用，含全部團與私人資料，不做任何刪減） ──
+function exportFullBackup(){
+  const db=loadDB();
+  const pkg={
+    kind:'gp_full_backup',
+    version:1,
+    db,
+    settings:loadSettings(),
+    textOv:loadTextOv(),
+    exportedAt:new Date().toLocaleString('zh-TW')
+  };
+  const blob=new Blob([JSON.stringify(pkg)],{type:'application/json'});
+  const a=document.createElement('a');
+  const ts=new Date();
+  const stamp=`${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}_${String(ts.getHours()).padStart(2,'0')}${String(ts.getMinutes()).padStart(2,'0')}`;
+  a.href=URL.createObjectURL(blob);a.download=`備份_${stamp}.json`;a.click();
+  alert('已下載完整備份（含全部團、聯絡方式、截圖、個人備註）。\n傳到另一台裝置後用「匯入完整備份」讀取即可同步。');
+}
+function importFullBackup(input){
+  const f=input.files&&input.files[0];
+  input.value='';
+  if(!f)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const pkg=JSON.parse(String(e.target.result));
+      if(pkg.kind!=='gp_full_backup'||!pkg.db)throw new Error('格式不符');
+      if(!confirm(`匯入完整備份會覆蓋此裝置目前的所有資料（含全部團）。\n備份時間：${pkg.exportedAt||'未知'}\n確定繼續？`))return;
+      localStorage.setItem('gp_db2',JSON.stringify(pkg.db));
+      if(pkg.settings)localStorage.setItem('gp_settings',JSON.stringify(pkg.settings));
+      if(pkg.textOv)localStorage.setItem('gp_text_overrides',JSON.stringify(pkg.textOv));
+      _vdb=null;view='home';gid=null;tab='orders';sNick='';sItem='';homeFilter='';
+      alert('備份匯入完成');
+      applyTheme();render();
+    }catch(err){
+      alert('匯入失敗：請確認選的是「匯出完整備份」產生的檔案');
+      console.error(err);
+    }
+  };
+  reader.readAsText(f);
 }
 function importViewerData(input){
   const f=input.files&&input.files[0];
@@ -1344,9 +1391,13 @@ function renderPriorityTab(g){
 function renderBuyersTab(g){
   const st=S();const byB={};
   for(const o of getConfirmedOrders(g)){
-    if(!byB[o.nick])byB[o.nick]={items:new Set(),orders:[],qty:0,amt:0};
+    if(!byB[o.nick])byB[o.nick]={items:new Set(),orders:[],qty:0,amt:0,sur:0};
     byB[o.nick].items.add(o.item);byB[o.nick].orders.push(o);byB[o.nick].qty+=o.qty;byB[o.nick].amt+=o.qty*effPrice(g,o);
+    // 二補（國際運費均攤）＝商品設定的每件二補 × 數量，與商品金額分開統計
+    const surBp=(g.boxProducts||[]).find(p=>orderMatches(p,o)&&p.contents.includes(o.item));
+    byB[o.nick].sur+=(surBp&&surBp.surcharge?surBp.surcharge:0)*o.qty;
   }
+  const hasSur=Object.values(byB).some(d=>d.sur>0);
   const hiddenStats=new Set(g.hiddenStatsNicks||[]);
   const allSorted=Object.entries(byB).sort((a,b)=>b[1].qty-a[1].qty);
   const sorted=allSorted.filter(([nick])=>!hiddenStats.has(nick));
@@ -1368,9 +1419,9 @@ function renderBuyersTab(g){
     }
     h+=`<div style="margin-bottom:14px;padding:10px;background:#fef7fa;border-radius:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap">
-        <strong>${esc(nick)}</strong><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="muted">${d.qty} 件 · $${d.amt.toLocaleString()}</span>${RO?'':`<button class="bs bg" style="color:#a32d2d" onclick="hideBuyerStat(${g.id},'${encodeURIComponent(nick)}')">隱藏</button>`}</span></div>
+        <strong>${esc(nick)}</strong><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="muted">${d.qty} 件 · $${d.amt.toLocaleString()}${d.sur>0?` · 二補 $${d.sur.toLocaleString()}`:''}</span>${RO?'':`<button class="bs bg" style="color:#a32d2d" onclick="hideBuyerStat(${g.id},'${encodeURIComponent(nick)}')">隱藏</button>`}</span></div>
       ${buyerLine}
-      <div style="overflow-x:auto"><table><thead><tr><th>商品</th><th>${esc(st.fieldQty)}</th>${hasAnyAdj?'<th>調價</th>':`<th>${esc(st.fieldPrice)}</th>`}<th>小計</th><th>${esc(st.fieldNote)}</th><th>到貨狀況</th><th>出貨</th></tr></thead><tbody>`;
+      <div style="overflow-x:auto"><table><thead><tr><th>商品</th><th>${esc(st.fieldQty)}</th>${hasAnyAdj?'<th>調價</th>':`<th>${esc(st.fieldPrice)}</th>`}<th>小計</th>${hasSur?'<th>二補</th>':''}<th>${esc(st.fieldNote)}</th><th>到貨狀況</th><th>出貨</th></tr></thead><tbody>`;
     const groupArrived=['已到貨','已結團'].includes(g.status);
     for(const o of d.orders){
       const price=effPrice(g,o);
@@ -1391,7 +1442,8 @@ function renderBuyersTab(g){
       const shipCell=RO
         ?`<span class="badge ${shipped?'b-green':'b-gray'}">${shipped?'已出貨':'未出貨'}</span>`
         :`<input type="checkbox" ${shipped?'checked':''} title="勾選＝已出貨" onchange="toggleShipKey(${g.id},'${encodeURIComponent(shipKey)}')">`;
-      h+=`<tr><td>${esc(label)}</td><td>${o.qty}</td><td>${price?'$'+price:'-'}</td><td>${price?'$'+(o.qty*price):'-'}</td><td class="muted">${esc(o.note||'')}</td><td>${arrCell}</td><td>${shipCell}</td></tr>`;
+      const surAmt=(bp&&bp.surcharge?bp.surcharge:0)*o.qty;
+      h+=`<tr><td>${esc(label)}</td><td>${o.qty}</td><td>${price?'$'+price:'-'}</td><td>${price?'$'+(o.qty*price):'-'}</td>${hasSur?`<td>${surAmt?'$'+surAmt:'-'}</td>`:''}<td class="muted">${esc(o.note||'')}</td><td>${arrCell}</td><td>${shipCell}</td></tr>`;
     }
     h+=`</tbody></table></div></div>`;
   }}
@@ -2216,6 +2268,7 @@ function showAddBoxProductModal(gid,defaultKind){
     ${bpImgField('')}
     <div class="form-group" style="margin:10px 0"><label>款式（每行一款，或用 / 分隔）</label>
       <textarea id="bpC" placeholder="角色A&#10;角色B&#10;角色C&#10;..." rows="5" oninput="refreshBpModalInputs()"></textarea></div>
+    <div class="form-row"><div class="form-group"><label>二補（每件國際運費均攤，選填）</label><input id="bpSur" type="number" min="0" placeholder="到貨後設定"></div></div>
     <div id="bpBoxOnly" style="display:${isSingle?'none':'block'}">
       <div class="form-row">
         <div class="form-group"><label>均價（每款基準價）</label><input id="bpAvg" type="number" min="0" placeholder="例：50" oninput="updatePriceSummary()"></div>
@@ -2242,11 +2295,12 @@ function addBoxProduct(gid){
   let contents=raw.split(/[\n\/,，]/).map(s=>s.trim()).filter(Boolean);
   const kind=document.querySelector('input[name=bpKind]:checked')?.value||'box';
   const img=_bpImg||'';
+  const surcharge=parseFloat($('#bpSur')?.value)||0;
   if(kind==='single'){
     if(!contents.length)contents=[name];
     const unitPrice=parseFloat($('#bpUnit')?.value)||0;
     upG(gid,g=>{if(!g.boxProducts)g.boxProducts=[];
-      g.boxProducts.push({id:g.nBid++,name,kind:'single',contents,unitPrice,maxBoxes:0,pricePerBox:0,adjustPrice:false,avgPrice:0,itemPrices:{},img});});
+      g.boxProducts.push({id:g.nBid++,name,kind:'single',contents,unitPrice,maxBoxes:0,pricePerBox:0,adjustPrice:false,avgPrice:0,itemPrices:{},img,surcharge});});
     closeModal();render();return;
   }
   if(!contents.length){alert('請輸入至少一個款式');return;}
@@ -2258,7 +2312,7 @@ function addBoxProduct(gid){
   const bindItems=collectBindItems(contents);
   const sortRule=document.querySelector('input[name=bpSort]:checked')?.value||'fifo';
   upG(gid,g=>{if(!g.boxProducts)g.boxProducts=[];
-    g.boxProducts.push({id:g.nBid++,name,kind:'box',contents,maxBoxes:parseInt($('#bpMax').value)||0,pricePerBox:parseFloat($('#bpPrice').value)||0,adjustPrice:adj,avgPrice,itemPrices:adj?itemPrices:{},bindItems,sortRule,img});});
+    g.boxProducts.push({id:g.nBid++,name,kind:'box',contents,maxBoxes:parseInt($('#bpMax').value)||0,pricePerBox:parseFloat($('#bpPrice').value)||0,adjustPrice:adj,avgPrice,itemPrices:adj?itemPrices:{},bindItems,sortRule,img,surcharge});});
   closeModal();render();
 }
 function showEditBoxProductModal(gid,bid){
@@ -2276,6 +2330,7 @@ function showEditBoxProductModal(gid,bid){
     ${bpImgField(p.img||'')}
     <div class="form-group" style="margin:10px 0"><label>款式（每行一款）</label>
       <textarea id="bpC" rows="5" oninput="refreshBpModalInputs()">${esc(p.contents.join('\n'))}</textarea></div>
+    <div class="form-row"><div class="form-group"><label>二補（每件國際運費均攤，選填）</label><input id="bpSur" type="number" min="0" value="${p.surcharge||''}" placeholder="到貨後設定"></div></div>
     <div id="bpBoxOnly" style="display:${isSingle?'none':'block'}">
       <div class="form-row">
         <div class="form-group"><label>均價（每款基準價）</label><input id="bpAvg" type="number" min="0" value="${p.avgPrice||''}" oninput="updatePriceSummary()"></div>
@@ -2300,12 +2355,14 @@ function showEditBoxProductModal(gid,bid){
 function saveBoxProductEdit(gid,bid){
   let contents=$('#bpC').value.trim().split(/[\n\/,，]/).map(s=>s.trim()).filter(Boolean);
   const kind=document.querySelector('input[name=bpKind]:checked')?.value||'box';
+  const surcharge=parseFloat($('#bpSur')?.value)||0;
   if(kind==='single'){
     const unitPrice=parseFloat($('#bpUnit')?.value)||0;
     upG(gid,g=>{const p=(g.boxProducts||[]).find(b=>b.id===bid);if(!p)return;
       p.name=$('#bpN').value.trim()||p.name;p.kind='single';
       p.contents=contents.length?contents:[p.name];p.unitPrice=unitPrice;
       p.maxBoxes=0;p.pricePerBox=0;p.adjustPrice=false;p.avgPrice=0;p.itemPrices={};
+      p.surcharge=surcharge;
       if(_bpImg!==null)p.img=_bpImg;});
     closeModal();render();return;
   }
@@ -2319,7 +2376,7 @@ function saveBoxProductEdit(gid,bid){
   const sortRule=document.querySelector('input[name=bpSort]:checked')?.value||'fifo';
   upG(gid,g=>{const p=(g.boxProducts||[]).find(b=>b.id===bid);if(!p)return;
     p.name=$('#bpN').value.trim()||p.name;p.kind='box';p.contents=contents;p.maxBoxes=parseInt($('#bpMax').value)||0;p.pricePerBox=parseFloat($('#bpPrice').value)||0;
-    p.adjustPrice=adj;p.avgPrice=avgPrice;p.itemPrices=adj?itemPrices:{};p.bindItems=bindItems;p.sortRule=sortRule;
+    p.adjustPrice=adj;p.avgPrice=avgPrice;p.itemPrices=adj?itemPrices:{};p.bindItems=bindItems;p.sortRule=sortRule;p.surcharge=surcharge;
     if(_bpImg!==null)p.img=_bpImg;});
   closeModal();render();
 }
