@@ -387,7 +387,7 @@ function renderHome(){
       <button class="bs" onclick="exportFullBackup()" title="匯出含全部團與私人資料的完整備份，用於裝置間手動同步">📦 匯出完整備份</button>
       <button class="bs" onclick="document.getElementById('importBackupFile').click()" title="匯入完整備份，會覆蓋此裝置的所有資料">📥 匯入完整備份</button>
       <input id="importBackupFile" type="file" accept=".json" style="display:none" onchange="importFullBackup(this)">
-      <span class="muted" style="font-size:11px">兩裝置間手動同步用（不影響團員看到的畫面）</span>
+      <span class="muted" style="font-size:11px"></span>
     </div>
     <div class="filter-chips"><span class="chip ${homeFilter===''?'active':''}" onclick="homeFilter='';render()">全部</span>
     ${RO
