@@ -311,6 +311,7 @@ function loadDB(){
   if(!db.fixedTeam)db.fixedTeam={};
   if(!db.teamNotes)db.teamNotes={};
   if(!db.units)db.units=[]; // 團體庫：{id,name,icon}
+  if(!db.roles)db.roles=[]; // 固位角色清單
   for(const g of db.groups){
     if(g.fixedTeam){
       for(const[nick,slots]of Object.entries(g.fixedTeam)){
@@ -387,7 +388,6 @@ function renderHome(){
       <button class="bs" onclick="exportFullBackup()" title="匯出含全部團與私人資料的完整備份，用於裝置間手動同步">📦 匯出完整備份</button>
       <button class="bs" onclick="document.getElementById('importBackupFile').click()" title="匯入完整備份，會覆蓋此裝置的所有資料">📥 匯入完整備份</button>
       <input id="importBackupFile" type="file" accept=".json" style="display:none" onchange="importFullBackup(this)">
-      <span class="muted" style="font-size:11px"></span>
     </div>
     <div class="filter-chips"><span class="chip ${homeFilter===''?'active':''}" onclick="homeFilter='';render()">全部</span>
     ${RO
@@ -742,23 +742,57 @@ function ftMemberBlock(nick,slots){
     <div class="ftSlots" style="display:flex;flex-wrap:wrap;gap:4px 8px">
     ${Object.entries(slots).map(([s,pos])=>ftSlotChip(s,pos)).join('')}
     </div>
-    <div style="display:flex;gap:4px;margin-top:6px;align-items:center">
-      <input class="ftAddStyle" list="ftStyleDl" placeholder="款式/角色" style="width:120px;font-size:12px">
+    <div style="display:flex;gap:4px;margin-top:6px;align-items:center;flex-wrap:wrap">
+      <select class="ftAddStyle" style="font-size:12px;min-width:110px">${getRoles().length?getRoles().map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join(''):'<option value="">（請先建立角色清單）</option>'}</select>
       <select class="ftAddPos" style="font-size:12px">${ftPosOptions('pick')}</select>
       <button class="bs" onclick="ftAddSlot(this)">＋ 加角色位</button>
     </div>
     <div style="margin-top:6px"><input class="ftNote" value="${esc(_ftNotes[nick]||'')}" placeholder="備註" style="width:100%;font-size:12px"></div></div>`;
 }
+// 固位角色清單（跨團共用，存於 db.roles）：固團成員的角色位只能從這裡選
+function getRoles(){return loadDB().roles||[];}
+function roleChip(r){
+  return `<span style="display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:3px 10px;font-size:12px">${esc(r)}
+    <span onclick="delRole(decodeURIComponent('${encodeURIComponent(r)}'))" style="cursor:pointer;color:#a32d2d;font-weight:bold" title="從清單移除">✕</span></span>`;
+}
+function showRolesModal(){
+  const roles=getRoles();
+  openModal(`<h3>固位角色清單</h3>
+    <p class="muted" style="margin-bottom:10px">固團成員的角色位只能從這份清單選擇。</p>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <input id="roleName" placeholder="角色名稱" style="flex:1" onkeydown="if(event.key==='Enter')addRole()">
+      <button class="bs bp" onclick="addRole()">新增</button></div>
+    <div id="roleList" style="display:flex;flex-wrap:wrap;gap:6px">${roles.map(roleChip).join('')||'<span class="muted">尚未新增角色</span>'}</div>
+    <div class="btn-row" style="margin-top:14px"><button onclick="showFixedTeamModal(true)">返回固團成員</button></div>`);
+  setTimeout(()=>$('#roleName')?.focus(),100);
+}
+function addRole(){
+  const name=$('#roleName').value.trim();
+  if(!name){alert('請輸入角色名稱');return;}
+  const db=loadDB();
+  if(!db.roles)db.roles=[];
+  if(db.roles.includes(name)){alert('角色已存在');return;}
+  db.roles.push(name);
+  saveDB(db);
+  $('#roleList').innerHTML=db.roles.map(roleChip).join('');
+  $('#roleName').value='';
+}
+function delRole(name){
+  if(!confirm(`從清單移除「${name}」？\n成員已設定的角色位不會被刪除。`))return;
+  const db=loadDB();
+  db.roles=(db.roles||[]).filter(r=>r!==name);
+  saveDB(db);
+  $('#roleList').innerHTML=db.roles.map(roleChip).join('')||'<span class="muted">尚未新增角色</span>';
+}
 function ftAddSlot(btn){
   const member=btn.closest('.ft-member');
   const inp=member.querySelector('.ftAddStyle');
-  const s=inp.value.trim();
-  if(!s){alert('請輸入款式/角色名稱');return;}
+  const s=(inp.value||'').trim();
+  if(!s){alert('請先到「角色清單」建立角色');return;}
   if(member.querySelector(`.ftSlot[data-style="${CSS.escape(s)}"]`)){alert(`「${s}」已有角色位，同一款式只能擇一`);return;}
   const pos=member.querySelector('.ftAddPos').value;
   const posObj=pos==='pick'?{t:'pick'}:{t:'slot',r:parseInt(pos.slice(5))||1};
   member.querySelector('.ftSlots').insertAdjacentHTML('beforeend',ftSlotChip(s,posObj));
-  inp.value='';
 }
 let _ftTeam={},_ftNotes={},_ftPass={};
 // 固位 pass 統計：特殊團（★）截團後，固位成員沒喊自己固位角色的商品即算一次 pass（連續累計）
@@ -839,7 +873,6 @@ function ftStyleView(){
 }
 function switchFtView(v){_ftView=v;showFixedTeamModal(true);}
 function showFixedTeamModal(keepTeam){
-  const styles=ftStyles();
   if(!keepTeam){
     _ftTeam=JSON.parse(JSON.stringify(getTeam()));
     _ftNotes=JSON.parse(JSON.stringify(loadDB().teamNotes||{}));
@@ -850,13 +883,14 @@ function showFixedTeamModal(keepTeam){
     <div style="display:flex;gap:4px;margin-bottom:10px">
       <button class="bs ${isStyle?'bp':''}" onclick="switchFtView('style')">依角色</button>
       <button class="bs ${isStyle?'':'bp'}" onclick="switchFtView('member')">依成員</button>
+      <div style="flex:1"></div>
+      <button class="bs" onclick="showRolesModal()">編輯角色清單</button>
     </div>`;
   if(isStyle){
     h+=`<div style="max-height:55vh;overflow-y:auto">${ftStyleView()}</div>
       <div class="btn-row" style="margin-top:10px"><button onclick="closeModal()">關閉</button></div>`;
   } else {
     h+=`<p class="muted" style="margin-bottom:8px">點「編輯」展開調整角色位，同一款式只能擇一（固位或撿漏）。喊單時依暱稱自動套用到所有團。</p>
-      <datalist id="ftStyleDl">${styles.map(s=>`<option value="${esc(s)}">`).join('')}</datalist>
       <div style="display:flex;gap:6px;margin-bottom:10px;align-items:flex-end">
         <div class="form-group" style="flex:1"><label>新增成員暱稱</label><input id="ftNick"></div>
         <button class="bs bp" onclick="addTeamMember()" style="margin-bottom:2px">新增</button></div>
