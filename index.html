@@ -1810,7 +1810,7 @@ function bpDetailHtml(g,p){
           const manualCell=g.manualTableMode&&!RO,itemKey=encodeURIComponent(slot.item);
           const cellAction=manualCell?` class="manual-grid-cell" data-gid="${g.id}" data-pid="${p.id}" data-box="${i}" data-item="${itemKey}" title="長按可移動或交換" onclick="handleManualCellClick(event,${g.id},${p.id},${i},'${itemKey}')" onpointerdown="startManualCellHold(event,${g.id},${p.id},${i},'${itemKey}')" onpointerup="endManualCellHold(event)" onpointercancel="cancelManualCellHold()" oncontextmenu="event.preventDefault()"`:'';
           const canDelete=!RO&&(g.manualTableMode||!slot.buyer.liftExtra);
-          h+=`<td${cellStyles.length?` style="${cellStyles.join(';')}"`:''}${cellAction}>${esc(slot.buyer.nick)}${slot.buyer.all?'（all）':''}${slot.buyer.bind?'(綁)':''}${slot.buyer.liftExtra?'(帶餘)':''}${slot.buyer.manual?'*':''}${canDelete?`<span class="slot-del" title="移除此格喊單" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();removeSlotUnit(${g.id},${p.id},${i},'${itemKey}','${encodeURIComponent(slot.buyer.nick)}',${slot.buyer.bind?1:0})">✕</span>`:''}</td>`;
+          h+=`<td${cellStyles.length?` style="${cellStyles.join(';')}"`:''}${cellAction}>${esc(slot.buyer.nick)}${slot.buyer.all&&!slot.buyer.bind?'（all）':''}${slot.buyer.bind?'(綁)':''}${slot.buyer.liftExtra?'(帶餘)':''}${slot.buyer.manual?'*':''}${canDelete?`<span class="slot-del" title="移除此格喊單" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();removeSlotUnit(${g.id},${p.id},${i},'${itemKey}','${encodeURIComponent(slot.buyer.nick)}',${slot.buyer.bind?1:0})">✕</span>`:''}</td>`;
         }
         else{
           const opened=Math.max(0,parseInt((p.blindCounts||{})[slot.item])||0);
