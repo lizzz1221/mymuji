@@ -484,7 +484,21 @@ function upG(id,fn){
 let view='home',gid=null,tab='orders',sNick='',sItem='',homeFilter='';
 function goHome(){view='home';gid=null;render();}
 function goGroup(id){view='group';gid=id;tab='orders';sNick='';sItem='';render();}
-function render(){view==='home'?renderHome():renderGroup();}
+let _renderContext='';
+function render(){
+  const context=view+'|'+(gid??'')+'|'+tab,sameContext=context===_renderContext;
+  const scrollY=sameContext?(window.scrollY||document.documentElement.scrollTop||0):0;
+  const horizontal=sameContext?[...document.querySelectorAll('#app [style*="overflow-x:auto"]')].map(el=>el.scrollLeft):[];
+  view==='home'?renderHome():renderGroup();
+  _renderContext=context;
+  if(sameContext){
+    const restore=()=>{
+      window.scrollTo(0,scrollY);
+      document.querySelectorAll('#app [style*="overflow-x:auto"]').forEach((el,index)=>{if(horizontal[index]!=null)el.scrollLeft=horizontal[index];});
+    };
+    restore();requestAnimationFrame(()=>requestAnimationFrame(restore));
+  }
+}
 function syncHiddenStatsBtn(){
   const btn=document.getElementById('hiddenStatsBtn');
   if(!btn)return;
@@ -689,7 +703,7 @@ function renderOrdersTab(g){
         <td>${o.all?'<span class="badge b-green">已 all</span>':o.qty}</td><td>${pr?'$'+pr:'-'}</td><td>${o.all?'<span class="muted">依成團數</span>':pr?'$'+(o.qty*pr):'-'}</td>
         <td class="muted">${esc(o.note||'')}</td>
         <td class="muted" style="white-space:nowrap">${fmtTs(o.ts)}</td>
-        ${RO?'':`<td style="white-space:nowrap"><button class="bs bg" onclick="showEditOrderModal(${g.id},${o.id})">編輯</button>
+        ${RO?'':o.manualGrid?'<td></td>':`<td style="white-space:nowrap"><button class="bs bg" onclick="showEditOrderModal(${g.id},${o.id})">編輯</button>
         <button class="bs bg" style="color:#a32d2d" onclick="delOrder(${g.id},${o.id})">刪除</button></td>`}</tr>`;
     }
     h+=`</tbody></table></div>`;
@@ -1782,16 +1796,17 @@ function bpDetailHtml(g,p){
       const priceChanged=Object.keys(p.rowPrices||{}).some(key=>key.startsWith(i+'|||'));
       h+=`<tr><td style="white-space:nowrap;font-weight:bold">第 ${i+1} 配${priceChanged?' *':''}</td>`;
       const bindPlan=box.bindPlan||getBoxBindPlan(p,box);
+      const boundNicks=new Set(box.filter(slot=>slot.buyer?.bind).map(slot=>slot.buyer.nick));
       for(const slot of box){
         if(slot.buyer){
-          const needBind=bindPlan.some(x=>x.nick===slot.buyer.nick&&x.binderItem===slot.item);
+          const bindPaired=!!slot.buyer.bind||bindPlan.some(x=>x.nick===slot.buyer.nick&&(x.binderItem===slot.item||x.item===slot.item))||(!slot.buyer.bind&&boundNicks.has(slot.buyer.nick)&&Math.max(0,parseInt((p.bindItems||{})[slot.item])||0)>0);
           const cellStyles=[];
           if(blindResult){
             const actualKey=JSON.stringify([i,slot.item,slot.buyer.oid||0,!!slot.buyer.bind]);
             if(blindActualKeys.has(actualKey))cellStyles.push('background:#e5f4e7');
             else cellStyles.push('background:#fde7ec');
           }
-          if(needBind)cellStyles.push('color:#a32d2d','font-weight:bold');
+          if(bindPaired)cellStyles.push('color:#2f6fa7','font-weight:bold');
           const manualCell=g.manualTableMode&&!RO,itemKey=encodeURIComponent(slot.item);
           const cellAction=manualCell?` class="manual-grid-cell" data-gid="${g.id}" data-pid="${p.id}" data-box="${i}" data-item="${itemKey}" title="長按可移動或交換" onclick="handleManualCellClick(event,${g.id},${p.id},${i},'${itemKey}')" onpointerdown="startManualCellHold(event,${g.id},${p.id},${i},'${itemKey}')" onpointerup="endManualCellHold(event)" onpointercancel="cancelManualCellHold()" oncontextmenu="event.preventDefault()"`:'';
           const canDelete=!RO&&(g.manualTableMode||!slot.buyer.liftExtra);
@@ -1806,7 +1821,7 @@ function bpDetailHtml(g,p){
       }
       const sb=box.status==='成團'||box.status==='爆配'?'b-green':box.status==='含綁成團'?'b-purple':'b-amber';
       h+=`<td><span class="badge ${sb}">${box.status}</span></td>`;
-      h+=`<td><div style="display:flex;gap:4px;justify-content:flex-end">${bindPlan.length?`<button class="bs bp" onclick="event.stopPropagation();showBindModal(${g.id},${p.id},${i})">綁</button>`:''}${RO?'':`<button class="bs" onclick="event.stopPropagation();showBoxRowPriceModal(${g.id},${p.id},${i})">編輯價格</button>`}</div></td></tr>`;
+      h+=`<td><div style="display:flex;gap:4px;justify-content:flex-end">${bindPlan.length?`<button class="bs bp" onclick="event.stopPropagation();showBindModal(${g.id},${p.id},${i})">綁</button>`:''}${RO?'':`<button class="bs" onclick="event.stopPropagation();showBoxRowPriceModal(${g.id},${p.id},${i})">編輯價格</button>${g.manualTableMode?`<button class="bs bd" onclick="event.stopPropagation();removeManualTableRow(${g.id},${p.id},${i})">刪除</button>`:''}`}</div></td></tr>`;
     }
     if(showN<info.boxesNeeded)h+=`<tr><td colspan="${p.contents.length+3}" class="muted" style="text-align:center">…其餘 ${info.boxesNeeded-showN} 配未顯示</td></tr>`;
     h+=`</tbody></table></div>`;
@@ -1933,7 +1948,31 @@ function addManualTableRow(gid,pid){
   });
   render();
 }
-function showManualSlotModal(gid,pid,boxIdx,itemEnc){
+function removeManualTableRow(gid,pid,boxIdx){
+  const g=getG(gid),p=(g?.boxProducts||[]).find(x=>x.id===pid);
+  if(!g?.manualTableMode||!p||boxIdx<0||boxIdx>=(p.manualRows||[]).length)return;
+  if(!confirm(`刪除第 ${boxIdx+1} 配？\n\n只會刪除手動表格中的這一配，不會刪除原始喊單記錄。`))return;
+  upG(gid,g=>{
+    if(!g.manualTableMode)return;
+    const p=(g.boxProducts||[]).find(x=>x.id===pid);if(!p||!Array.isArray(p.manualRows))return;
+    const removed=p.manualRows[boxIdx]||[];
+    const removedOrderIds=new Set(removed.filter(cell=>cell?.manualOrder&&cell.oid).map(cell=>cell.oid));
+    if(removedOrderIds.size)g.orders=g.orders.filter(o=>!removedOrderIds.has(o.id));
+    p.manualRows.splice(boxIdx,1);
+    const nextPrices={};
+    for(const [key,value] of Object.entries(p.rowPrices||{})){
+      const split=key.indexOf('|||');
+      const rowIdx=parseInt(split<0?key:key.slice(0,split));
+      if(!Number.isFinite(rowIdx)||split<0){nextPrices[key]=value;continue;}
+      if(rowIdx===boxIdx)continue;
+      const nextIdx=rowIdx>boxIdx?rowIdx-1:rowIdx;
+      nextPrices[nextIdx+key.slice(split)]=value;
+    }
+    p.rowPrices=nextPrices;
+  });
+  clearManualMoveSelection();
+  render();
+}function showManualSlotModal(gid,pid,boxIdx,itemEnc){
   const item=decodeURIComponent(itemEnc),g=getG(gid),p=(g?.boxProducts||[]).find(x=>x.id===pid);if(!g||!p||!g.manualTableMode)return;
   const cell=manualCellRef(p,boxIdx,item)?.cell;
   const title=cell?'編輯喊單':'新增喊單';
@@ -1951,15 +1990,18 @@ function saveManualSlot(gid,pid,boxIdx,itemEnc){
     if(!g.manualTableMode)return;
     const p=(g.boxProducts||[]).find(x=>x.id===pid);if(!p)return;
     const ref=manualCellRef(p,boxIdx,item);if(!ref)return;
-    const old=ref.cell;
-    ref.row[ref.index]={
-      nick,member:Object.prototype.hasOwnProperty.call(team,nick),
-      bind:!!old?.bind,all:!!old?.all,liftExtra:!!old?.liftExtra
-    };
+    const old=ref.cell,member=Object.prototype.hasOwnProperty.call(team,nick);
+    if(old){
+      old.nick=nick;old.member=member;
+      if(old.manualOrder&&old.oid){const order=g.orders.find(o=>o.id===old.oid);if(order)order.nick=nick;}
+    }else{
+      const oid=g.nOid++;
+      g.orders.push({id:oid,nick,item,series:'',qty:1,price:lookupPrice(g,item,pid)||0,note:'',bpId:pid,ts:Date.now(),manualGrid:true});
+      ref.row[ref.index]={nick,member,bind:false,all:false,liftExtra:false,oid,manualOrder:true};
+    }
   });
   closeModal();render();
-}
-let _manualHoldTimer=null,_manualMove=null,_manualSuppressClickUntil=0;
+}let _manualHoldTimer=null,_manualMove=null,_manualSuppressClickUntil=0;
 function clearManualMoveSelection(){
   document.querySelectorAll('.manual-moving').forEach(el=>el.classList.remove('manual-moving'));
   _manualMove=null;
@@ -2037,7 +2079,10 @@ function handleManualCellClick(ev,gid,pid,boxIdx,itemEnc){
     const p=(g.boxProducts||[]).find(b=>b.id===pid);
     if(p&&g.manualTableMode){
       const ref=manualCellRef(p,boxIdx,item);
-      if(ref?.cell)ref.row[ref.index]=null;
+      if(ref?.cell){
+        if(ref.cell.manualOrder&&ref.cell.oid)g.orders=g.orders.filter(o=>o.id!==ref.cell.oid);
+        ref.row[ref.index]=null;
+      }
       return;
     }
     const key=boxIdx+'|||'+item;
@@ -4572,6 +4617,12 @@ function getRegularProductConfirmedOrders(g,p){
   info.boxes.forEach((box,boxIdx)=>{
     if(box.status==='未成團')return;
     for(const slot of box)if(slot.buyer)slots.push({...slot,boxIdx});
+    if(box.status==='含綁成團'){
+      for(const bind of(box.bindPlan||getBoxBindPlan(p,box))){
+        const slot=box.find(s=>s.item===bind.item);
+        if(slot&&!slot.buyer)slots.push({item:bind.item,buyer:{nick:bind.nick,bind:true},boxIdx});
+      }
+    }
   });
   return aggregateProductSlots(g,p,slots);
 }
