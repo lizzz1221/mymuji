@@ -421,13 +421,60 @@ function renameLocalBuyerEverywhere(oldNick,newNick){
   }
   if(changed)saveLocalBuyerStore(store);
 }
-let _vdb=null;
+const LOCAL_PAY_NOTES_KEY='gp_local_pay_notes_v1';
+const LOCAL_PAY_NOTES_MIGRATED_KEY='gp_local_pay_notes_migrated_v1';
+function loadLocalPayNotes(){
+  try{
+    const data=JSON.parse(localStorage.getItem(LOCAL_PAY_NOTES_KEY)||'{}');
+    return data&&typeof data==='object'&&!Array.isArray(data)?data:{};
+  }catch(err){console.error(err);return{};}
+}
+function saveLocalPayNotes(store){localStorage.setItem(LOCAL_PAY_NOTES_KEY,JSON.stringify(store));}
+function getLocalPayNote(groupId,nick){
+  if(RO||groupId==null||!nick)return'';
+  return String(loadLocalPayNotes()[String(groupId)]?.[nick]||'');
+}
+function updateLocalPayNote(groupId,nick,note){
+  if(RO||groupId==null||!nick)return;
+  const store=loadLocalPayNotes(),key=String(groupId),value=String(note||'').trim();
+  const bucket=store[key]||(store[key]={});
+  if(value)bucket[nick]=value;else delete bucket[nick];
+  if(!Object.keys(bucket).length)delete store[key];
+  saveLocalPayNotes(store);
+}
+function migrateLegacyPayNotes(db){
+  const firstMigration=localStorage.getItem(LOCAL_PAY_NOTES_MIGRATED_KEY)!=='1';
+  const store=loadLocalPayNotes();let dbChanged=false,storeChanged=false;
+  for(const g of db.groups||[])for(const[nick,rec]of Object.entries(g.pay||{})){
+    if(!rec||!Object.prototype.hasOwnProperty.call(rec,'pnote'))continue;
+    const legacy=String(rec.pnote||'').trim(),key=String(g.id),bucket=store[key]||(store[key]={});
+    if(firstMigration&&legacy&&!Object.prototype.hasOwnProperty.call(bucket,nick)){bucket[nick]=legacy;storeChanged=true;}
+    delete rec.pnote;dbChanged=true;
+    if(!Object.keys(bucket).length)delete store[key];
+  }
+  if(storeChanged)saveLocalPayNotes(store);
+  if(firstMigration)localStorage.setItem(LOCAL_PAY_NOTES_MIGRATED_KEY,'1');
+  return dbChanged;
+}
+function localPayNoteNicknameInUse(nick){
+  return Object.values(loadLocalPayNotes()).some(bucket=>bucket&&Object.prototype.hasOwnProperty.call(bucket,nick));
+}
+function renameLocalPayNotesEverywhere(oldNick,newNick){
+  const store=loadLocalPayNotes();let changed=false;
+  for(const bucket of Object.values(store)){
+    if(!bucket||!Object.prototype.hasOwnProperty.call(bucket,oldNick))continue;
+    if(!Object.prototype.hasOwnProperty.call(bucket,newNick))bucket[newNick]=bucket[oldNick];
+    delete bucket[oldNick];changed=true;
+  }
+  if(changed)saveLocalPayNotes(store);
+}let _vdb=null;
 function loadDB(){
   if(RO){if(!_vdb){_vdb=window.VIEWER_DB;releaseLegacyBindLocks(_vdb);}return _vdb;}
   const rawDb=localStorage.getItem('gp_db2')||'{"groups":[],"nid":1}';
   const db=JSON.parse(rawDb);
   let changed=releaseLegacyBindLocks(db);
   if(migrateLegacyBuyerData(db,rawDb))changed=true;
+  if(migrateLegacyPayNotes(db))changed=true;
   const statusMap={'開團中':'進行中','已截單':'收款中','已封存':'已結團'};
   for(const g of db.groups){
     if(statusMap[g.status]){g.status=statusMap[g.status];changed=true;}
@@ -544,8 +591,8 @@ function renderHome(){
     ${RO&&window.VIEWER_DB.publishedAt?`<div class="muted" style="margin-bottom:1rem">資料更新時間：${esc(window.VIEWER_DB.publishedAt)}</div>`:''}
     <div class="toolbar"><button class="bp" onclick="showNewGroupModal()">建立新團</button><button onclick="showFixedTeamModal()">固團成員</button><button onclick="showUnitsModal()">團體管理</button><button onclick="showShipModal()">個人貨況查詢</button><button onclick="showGithubSyncModal()">GitHub 同步</button><button onclick="document.getElementById('importDataFile').click()">匯入 data.js</button><input id="importDataFile" type="file" accept=".js,.txt" style="display:none" onchange="importViewerData(this)"><button onclick="exportViewerData()">發布查詢資料</button><span class="muted">共 ${db.groups.length} 個團</span></div>
     <div class="toolbar" style="margin-top:-4px">
-      <button class="bs" onclick="exportFullBackup()" title="匯出團購管理資料；各團本機網址、平台 ID 與喊單截圖不包含在內">📦 匯出完整備份</button>
-      <button class="bs" onclick="document.getElementById('importBackupFile').click()" title="匯入團購管理資料；不影響各團本機網址、平台 ID 與喊單截圖">📥 匯入完整備份</button>
+      <button class="bs" onclick="exportFullBackup()" title="匯出團購管理資料；各團本機網址、平台 ID、喊單截圖與收款個人備註不包含在內">📦 匯出完整備份</button>
+      <button class="bs" onclick="document.getElementById('importBackupFile').click()" title="匯入團購管理資料；不影響各團本機網址、平台 ID、喊單截圖與收款個人備註">📥 匯入完整備份</button>
       <input id="importBackupFile" type="file" accept=".json" style="display:none" onchange="importFullBackup(this)">
     </div>
     <div class="filter-chips"><span class="chip ${homeFilter===''?'active':''}" onclick="homeFilter='';render()">全部</span>
@@ -833,7 +880,7 @@ function exportViewerData(){
   catch(err){alert(err.message||'沒有可發布的資料');return;}
   const blob=new Blob([file],{type:'text/javascript'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='data.js';a.click();
-  alert('已下載 data.js。\n把「index.html＋data.js」一起上傳到網站空間（index.html 有 data.js 在旁邊時會自動變成唯讀查詢版）。\n之後資料更新，只要重新發布並覆蓋 data.js；各團本機網址、平台 ID 與喊單截圖不會包含在檔案內。');
+  alert('已下載 data.js。\n把「index.html＋data.js」一起上傳到網站空間（index.html 有 data.js 在旁邊時會自動變成唯讀查詢版）。\n之後資料更新，只要重新發布並覆蓋 data.js；各團本機網址、平台 ID、喊單截圖與收款個人備註不會包含在檔案內。');
 }
 function exportFullBackup(){
   const db=JSON.parse(JSON.stringify(loadDB()));
@@ -862,14 +909,14 @@ function importFullBackup(input){
     try{
       const pkg=JSON.parse(String(e.target.result));
       if(pkg.kind!=='gp_full_backup'||!pkg.db)throw new Error('格式不符');
-      if(!confirm(`匯入完整備份會覆蓋此裝置目前的團購管理資料，但不會更動各團本機網址、平台 ID 與喊單截圖。\n備份時間：${pkg.exportedAt||'未知'}\n確定繼續？`))return;
+      if(!confirm(`匯入完整備份會覆蓋此裝置目前的團購管理資料，但不會更動各團本機網址、平台 ID、喊單截圖與收款個人備註。\n備份時間：${pkg.exportedAt||'未知'}\n確定繼續？`))return;
       const importedDb=JSON.parse(JSON.stringify(pkg.db));
       delete importedDb.buyers;
       localStorage.setItem('gp_db2',JSON.stringify(importedDb));
       if(pkg.settings)localStorage.setItem('gp_settings',JSON.stringify(pkg.settings));
       if(pkg.textOv)localStorage.setItem('gp_text_overrides',JSON.stringify(pkg.textOv));
       _vdb=null;view='home';gid=null;tab='orders';sNick='';sItem='';homeFilter='';
-      alert('備份匯入完成；各團本機網址、平台 ID 與喊單截圖保持不變');
+      alert('備份匯入完成；各團本機網址、平台 ID、喊單截圖與收款個人備註保持不變');
       applyTheme();render();
     }catch(err){
       alert('匯入失敗：請確認選的是「匯出完整備份」產生的檔案');
@@ -899,12 +946,12 @@ function importViewerData(input){
       if(!win.VIEWER_DB||!Array.isArray(win.VIEWER_DB.groups))throw new Error('找不到 VIEWER_DB');
       const db=preserveMissingAdminLibraries(JSON.parse(JSON.stringify(win.VIEWER_DB)));
       delete db.buyers;
-      if(!confirm(`匯入後會覆蓋此裝置目前管理資料，但不會更動各團本機網址、平台 ID 與喊單截圖。\n將匯入 ${db.groups.length} 個團，確定繼續？`))return;
+      if(!confirm(`匯入後會覆蓋此裝置目前管理資料，但不會更動各團本機網址、平台 ID、喊單截圖與收款個人備註。\n將匯入 ${db.groups.length} 個團，確定繼續？`))return;
       localStorage.setItem('gp_db2',JSON.stringify(db));
       if(win.VIEWER_SETTINGS)localStorage.setItem('gp_settings',JSON.stringify(win.VIEWER_SETTINGS));
       if(win.VIEWER_TEXTOV)localStorage.setItem('gp_text_overrides',JSON.stringify(win.VIEWER_TEXTOV));
       _vdb=null;view='home';gid=null;tab='orders';sNick='';sItem='';homeFilter='';
-      alert('匯入完成；各團本機網址、平台 ID 與喊單截圖保持不變');
+      alert('匯入完成；各團本機網址、平台 ID、喊單截圖與收款個人備註保持不變');
       applyTheme();render();
     }catch(err){
       alert('匯入失敗：請確認選的是本站匯出的 data.js');
@@ -1057,14 +1104,14 @@ async function githubPullData(){
     setGhStatus('正在讀取 GitHub 上的 data.js...');
     const raw=await ghFetch(c,c.path,{query:'?ref='+encodeURIComponent(c.branch)+'&t='+Date.now(),accept:'application/vnd.github.raw'}).then(r=>r.text());
     const win=parseViewerDataText(raw);
-    if(!confirm('讀取到 '+win.VIEWER_DB.groups.length+' 個團。\n匯入後會覆蓋這台裝置目前的管理資料，但不會更動各團本機網址、平台 ID 與喊單截圖。確定繼續？'))return;
+    if(!confirm('讀取到 '+win.VIEWER_DB.groups.length+' 個團。\n匯入後會覆蓋這台裝置目前的管理資料，但不會更動各團本機網址、平台 ID、喊單截圖與收款個人備註。確定繼續？'))return;
     const importedDb=preserveMissingAdminLibraries(JSON.parse(JSON.stringify(win.VIEWER_DB)));
     delete importedDb.buyers;
     localStorage.setItem('gp_db2',JSON.stringify(importedDb));
     if(win.VIEWER_SETTINGS)localStorage.setItem('gp_settings',JSON.stringify(win.VIEWER_SETTINGS));
     if(win.VIEWER_TEXTOV)localStorage.setItem('gp_text_overrides',JSON.stringify(win.VIEWER_TEXTOV));
     _vdb=null;view='home';gid=null;tab='orders';sNick='';sItem='';homeFilter='';
-    applyTheme();render();showGithubSyncModal();setGhStatus('已讀取並匯入線上資料；各團本機網址、平台 ID 與喊單截圖保持不變');
+    applyTheme();render();showGithubSyncModal();setGhStatus('已讀取並匯入線上資料；各團本機網址、平台 ID、喊單截圖與收款個人備註保持不變');
   }catch(err){
     setGhStatus('讀取失敗：'+err.message);
     console.error(err);
@@ -1452,6 +1499,7 @@ function collectFixedTeamForm(){
 function nicknameInUse(db,nick){
   if(Object.prototype.hasOwnProperty.call(db.fixedTeam||{},nick))return true;
   if(localBuyerNicknameInUse(nick))return true;
+  if(localPayNoteNicknameInUse(nick))return true;
   return (db.groups||[]).some(g=>(g.orders||[]).some(o=>o.nick===nick)||Object.prototype.hasOwnProperty.call(g.pay||{},nick));
 }
 function renamePinNick(map,oldNick,newNick){
@@ -1500,6 +1548,7 @@ function renameMemberEverywhere(db,oldNick,newNick){
     }
   }
   renameLocalBuyerEverywhere(oldNick,newNick);
+  renameLocalPayNotesEverywhere(oldNick,newNick);
 }
 function renameFixedMember(oldNickEnc){
   const oldNick=decodeURIComponent(oldNickEnc);
@@ -3144,7 +3193,7 @@ function renderPayTab(g){
       h+=`<tr><td>${team[nick]?`<span style="color:#a32d2d;font-weight:bold">${esc(nick)}</span>`:esc(nick)}</td>
         <td>$${total.toLocaleString()}${isOv?'<span style="color:#d16277;font-weight:bold">*</span>':''}</td><td>${p.paid?'$'+p.paid.toLocaleString():'-'}</td><td>${st}</td>
         <td class="muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'')}</td>
-        ${RO?'':`<td class="muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#8a75c9">${esc(p.pnote||'')}</td>`}
+        ${RO?'':`<td class="muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#8a75c9">${esc(getLocalPayNote(g.id,nick))}</td>`}
         <td><button class="bs bg" onclick="showPayModal(${g.id},'${encodeURIComponent(nick)}')">編輯</button></td></tr>`;
     }
     h+=`</tbody></table></div>`;
@@ -3164,7 +3213,7 @@ function showPayModal(gid,nickEnc){
       <div class="form-group"><label>已收款項</label><input id="payAmt" type="number" min="0" value="${p.paid||''}"></div>
     </div>
     <div class="form-group" style="margin-bottom:10px"><label>備註（團員看得到）</label><input id="payNote" value="${esc(p.note||'')}"></div>
-    <div class="form-group" style="margin-bottom:10px"><label>個人備註（僅後台可見）</label><input id="payPNote" value="${esc(p.pnote||'')}"></div>
+    <div class="form-group" style="margin-bottom:10px"><label>個人備註（僅後台可見）</label><input id="payPNote" value="${esc(getLocalPayNote(gid,nick))}"></div>
     <div class="btn-row">
       <button class="bs" onclick="document.getElementById('payAmt').value=document.getElementById('payTotal').value">填入全額</button>
       <button class="bs" onclick="document.getElementById('payTotal').value=${computed}">還原系統計算</button>
@@ -3181,10 +3230,10 @@ function savePay(gid,nickEnc,computed){
   upG(gid,g=>{
     if(!g.pay)g.pay={};
     const rec={paid,note};
-    if(pnote)rec.pnote=pnote;
     if(!isNaN(totalIn)&&totalIn!==computed)rec.totalOv=totalIn;
     g.pay[nick]=rec;
   });
+  updateLocalPayNote(gid,nick,pnote);
   closeModal();render();
 }
 
@@ -3263,9 +3312,9 @@ function renderExportTab(g){
     <button onclick="doExport(${g.id},'csv')">CSV 下載</button>
     <button onclick="doExport(${g.id},'copy')">複製到剪貼簿</button>
     <button class="bp" onclick="exportXls(${g.id})">匯出 Excel</button>
-    ${g.type==='box'?`<button class="bp" onclick="exportSummaryXls(${g.id})">匯出總表</button>`:''}</div><div id="exportBox"></div></div>`;
+    ${g.type==='box'?`<button class="bp" onclick="exportSummaryXls(${g.id})">匯出總表</button><button onclick="exportSummaryXls(${g.id},'member')">匯出團員總表</button><button onclick="exportSummaryXls(${g.id},'nonmember')">匯出非團員總表</button>`:''}</div><div id="exportBox"></div></div>`;
 }
-function exportSummaryXls(gid){
+function exportSummaryXls(gid,scope='all'){
   const g=getG(gid);if(!g)return;
   const bps=g.boxProducts||[];
   if(!bps.length){alert('尚無商品');return;}
@@ -3284,7 +3333,13 @@ function exportSummaryXls(gid){
     b.total+=o.qty*effPrice(g,o);
     b.keys.push(`${o.bpId||''}|||${o.item}|||${o.bind?1:0}|||${o.nick}`);
   }
-  const nicks=Object.keys(byNick).sort((a,b)=>byNick[b].total-byNick[a].total);
+  const team=getTeam();
+  const sortedNicks=Object.keys(byNick).sort((a,b)=>byNick[b].total-byNick[a].total);
+  const memberNicks=sortedNicks.filter(n=>Object.prototype.hasOwnProperty.call(team,n));
+  const nonmemberNicks=sortedNicks.filter(n=>!Object.prototype.hasOwnProperty.call(team,n));
+  const nicks=scope==='member'?memberNicks:scope==='nonmember'?nonmemberNicks:[...memberNicks,...nonmemberNicks];
+  const sections=scope==='all'?[{label:'團員',nicks:memberNicks},{label:'非團員',nicks:nonmemberNicks}]:[{label:'',nicks}];
+  const title=scope==='member'?'團員總表':scope==='nonmember'?'非團員總表':'總表';
 
   const css=`<style>
     td,th{border:1px solid #bbb;padding:4px 8px;font-size:11pt;font-family:Arial,sans-serif;white-space:nowrap}
@@ -3296,32 +3351,36 @@ function exportSummaryXls(gid){
   </style>`;
 
   let html=`<table cellspacing="0">
-    <tr><td colspan="${bps.length+6}" style="font-size:14pt;font-weight:bold;border:none">${esc(g.name)} — 總表</td></tr>
+    <tr><td colspan="${bps.length+6}" style="font-size:14pt;font-weight:bold;border:none">${esc(g.name)} — ${title}</td></tr>
     <tr><th>暱稱</th>${bps.map(p=>`<th>${esc(p.name)}</th>`).join('')}<th>總金額</th><th>已付金額</th><th>餘款</th><th>出貨狀況</th><th>備註</th></tr>`;
-  for(const nick of nicks){
-    const b=byNick[nick];
-    const paid=(pay[nick]&&pay[nick].paid)||0;
-    const total=payTotal(g,nick,b.total);
-    const isOv=pay[nick]&&pay[nick].totalOv!=null;
-    const diff=total-paid;
-    const allShipped=b.keys.length&&b.keys.every(k=>ship[k]&&ship[k].s);
-    html+=`<tr><td class="ctr" style="font-weight:bold">${esc(nick)}</td>`;
-    for(const p of bps){
-      const items=b.perBp[p.id]||{};
-      const cell=Object.entries(items).map(([item,qty])=>{
-        const single=p.contents.length===1&&p.contents[0]===p.name;
-        return `${single?'':esc(item)}${qty}`;
-      }).join('、');
-      html+=`<td class="ctr">${cell||''}</td>`;
+  for(const section of sections){
+    if(!section.nicks.length)continue;
+    if(section.label)html+=`<tr><td colspan="${bps.length+6}" style="background:#fff2b8;font-weight:bold">${section.label}</td></tr>`;
+    for(const nick of section.nicks){
+      const b=byNick[nick];
+      const paid=(pay[nick]&&pay[nick].paid)||0;
+      const total=payTotal(g,nick,b.total);
+      const isOv=pay[nick]&&pay[nick].totalOv!=null;
+      const diff=total-paid;
+      const allShipped=b.keys.length&&b.keys.every(k=>ship[k]&&ship[k].s);
+      html+=`<tr><td class="ctr" style="font-weight:bold">${esc(nick)}</td>`;
+      for(const p of bps){
+        const items=b.perBp[p.id]||{};
+        const cell=Object.entries(items).map(([item,qty])=>{
+          const single=p.contents.length===1&&p.contents[0]===p.name;
+          return `${single?'':esc(item)}${qty}`;
+        }).join('、');
+        html+=`<td class="ctr">${cell||''}</td>`;
+      }
+      html+=`<td class="num">${total.toLocaleString()}${isOv?'*':''}</td>
+        <td class="num">${paid?paid.toLocaleString():''}</td>
+        <td class="${diff>0?'due':'ok'}">${diff>0?diff.toLocaleString():'已付清'}</td>
+        <td class="ctr">${allShipped?'已出貨':'未出貨'}</td>
+        <td>${esc((pay[nick]&&pay[nick].note)||'')}</td></tr>`;
     }
-    html+=`<td class="num">${total.toLocaleString()}${isOv?'*':''}</td>
-      <td class="num">${paid?paid.toLocaleString():''}</td>
-      <td class="${diff>0?'due':'ok'}">${diff>0?diff.toLocaleString():'已付清'}</td>
-      <td class="ctr">${allShipped?'已出貨':'未出貨'}</td>
-      <td>${esc((pay[nick]&&pay[nick].note)||'')}</td></tr>`;
   }
-  const grandTotal=nicks.reduce((s,n)=>s+payTotal(g,n,byNick[n].total),0);
-  const grandPaid=nicks.reduce((s,n)=>s+((pay[n]&&pay[n].paid)||0),0);
+  const grandTotal=nicks.reduce((sum,n)=>sum+payTotal(g,n,byNick[n].total),0);
+  const grandPaid=nicks.reduce((sum,n)=>sum+((pay[n]&&pay[n].paid)||0),0);
   html+=`<tr><td class="ctr" style="font-weight:bold">總計</td>${bps.map(()=>'<td></td>').join('')}
     <td class="num" style="font-weight:bold">${grandTotal.toLocaleString()}</td>
     <td class="num" style="font-weight:bold">${grandPaid.toLocaleString()}</td>
@@ -3332,7 +3391,7 @@ function exportSummaryXls(gid){
   const file=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8">${css}</head><body>${html}</body></html>`;
   const blob=new Blob(['﻿'+file],{type:'application/vnd.ms-excel;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${g.name}_總表.xls`;a.click();
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${g.name}_${title}.xls`;a.click();
 }
 
 
@@ -4617,12 +4676,7 @@ function getRegularProductConfirmedOrders(g,p){
   info.boxes.forEach((box,boxIdx)=>{
     if(box.status==='未成團')return;
     for(const slot of box)if(slot.buyer)slots.push({...slot,boxIdx});
-    if(box.status==='含綁成團'){
-      for(const bind of(box.bindPlan||getBoxBindPlan(p,box))){
-        const slot=box.find(s=>s.item===bind.item);
-        if(slot&&!slot.buyer)slots.push({item:bind.item,buyer:{nick:bind.nick,bind:true},boxIdx});
-      }
-    }
+
   });
   return aggregateProductSlots(g,p,slots);
 }
