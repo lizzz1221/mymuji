@@ -151,6 +151,8 @@ td .slot-del{display:none;color:#d16277;cursor:pointer;margin-left:4px;font-weig
 td:hover .slot-del{display:inline}
 .slot-empty{cursor:pointer}
 .slot-empty:hover{background:#f6dfe9!important}
+.manual-grid-cell{cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:pan-x pan-y}
+.manual-grid-cell.manual-moving{outline:2px solid #d6a83f;outline-offset:-2px;background:#fff3c8!important}
 
 .progress-bar{height:8px;background:var(--cream);border-radius:4px;overflow:hidden;margin-top:4px}
 .progress-fill{height:100%;border-radius:4px;transition:width .3s}
@@ -1477,6 +1479,7 @@ function renameMemberEverywhere(db,oldNick,newNick){
       renamePinNick(product.pins,oldNick,newNick);
       renamePinNick(product.frozenPins,oldNick,newNick);
       renamePinNick(product.layoutPins,oldNick,newNick);
+      for(const row of(product.manualRows||[]))for(const cell of(row||[]))if(cell&&cell.nick===oldNick)cell.nick=newNick;
       for(const pins of Object.values(product.blindAllocPins||{})){
         for(const pin of pins||[])if(pin&&pin.nick===oldNick)pin.nick=newNick;
       }
@@ -1590,9 +1593,21 @@ function toggleFixEnd(gid){
   render();
 }
 function toggleTableDeleteAddon(gid,enabled){
+  const current=getG(gid);if(!current||current.manualTableMode||!enabled)return;
+  if(!confirm('請先確認目前已截團，或所有喊單與配單狀況都已確認。\n\n啟用後表格會完全固定，不再受喊單記錄影響，且無法返回自動排序。確定啟用？')){render();return;}
   upG(gid,g=>{
-    g.keepTableOrderOnDelete=!!enabled;
-    if(!enabled)for(const p of(g.boxProducts||[]))delete p.layoutPins;
+    const team=getTeam();
+    for(const p of(g.boxProducts||[])){
+      if(p.kind==='single')continue;
+      const info=calcBoxes(g,p);
+      p.manualRows=info.boxes.map(box=>box.map(slot=>slot.buyer?{
+        nick:slot.buyer.nick,member:Object.prototype.hasOwnProperty.call(team,slot.buyer.nick),bind:!!slot.buyer.bind,
+        all:!!slot.buyer.all,liftExtra:!!slot.buyer.liftExtra
+      }:null));
+    }
+    g.manualTableMode=true;
+    g.manualTableLockedAt=Date.now();
+    g.keepTableOrderOnDelete=false;
   });
   render();
 }
@@ -1601,8 +1616,8 @@ function renderBoxSetupTab(g){
   const boxes=g.boxProducts.filter(p=>p.kind!=='single');
   let h=`<div class="card"><div class="card-header"><h3 style="margin:0">拆團狀況</h3>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:#fff" title="直接在配單表格刪減時，保留其他人的目前格位">
-        <input type="checkbox" ${g.keepTableOrderOnDelete?'checked':''} onchange="toggleTableDeleteAddon(${g.id},this.checked)">超級外掛：刪減不重排</label>
+      <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:#fff">
+        <input type="checkbox" ${g.manualTableMode?'checked disabled':''} onchange="toggleTableDeleteAddon(${g.id},this.checked)">超級外掛：全手動</label>
       <button class="bs ${g.fixEnded?'':'bd'}" onclick="toggleFixEnd(${g.id})">${g.fixEnded?'恢復固位優先':'結束固位優先'}</button>
       <button class="bs bg" onclick="showCopyBoxProductModal(${g.id})">複製現有商品</button>
       <button class="bs bp" onclick="showAddBoxProductModal(${g.id},'box')">新增拆盒商品</button>
@@ -1751,11 +1766,12 @@ function bpDetailHtml(g,p){
 
   const blindOpenedMax=blindResult?Math.max(0,...p.contents.map(item=>Math.max(0,parseInt((p.blindCounts||{})[item])||0))):0;
   const tableRows=Math.max(info.boxesNeeded,blindOpenedMax);
+  if(g.manualTableMode&&!RO)h+=`<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="bs bp" onclick="addManualTableRow(${g.id},${p.id})">新增一配</button></div>`;
   if(tableRows>0){
     const bind=p.bindItems||{};
     let showN=tableRows;
-    if(info.onlyAll&&!blindResult)showN=Math.min(showN,5);
-    else if(!p.maxBoxes&&!blindResult){
+    if(!g.manualTableMode&&info.onlyAll&&!blindResult)showN=Math.min(showN,5);
+    else if(!g.manualTableMode&&!p.maxBoxes&&!blindResult){
       const filled=info.boxes.filter(b=>b.every(s=>s.buyer)).length;
       showN=Math.min(info.boxesNeeded,filled+10);
     }
@@ -1776,12 +1792,16 @@ function bpDetailHtml(g,p){
             else cellStyles.push('background:#fde7ec');
           }
           if(needBind)cellStyles.push('color:#a32d2d','font-weight:bold');
-          h+=`<td${cellStyles.length?` style="${cellStyles.join(';')}"`:''}>${esc(slot.buyer.nick)}${slot.buyer.all?'（all）':''}${slot.buyer.bind?'(綁)':''}${slot.buyer.liftExtra?'(帶餘)':''}${slot.buyer.manual?'*':''}${slot.buyer.liftExtra?'':`<span class="slot-del" title="移除此格喊單" onclick="event.stopPropagation();removeSlotUnit(${g.id},${p.id},${i},'${encodeURIComponent(slot.item)}','${encodeURIComponent(slot.buyer.nick)}',${slot.buyer.bind?1:0})">✕</span>`}</td>`;
+          const manualCell=g.manualTableMode&&!RO,itemKey=encodeURIComponent(slot.item);
+          const cellAction=manualCell?` class="manual-grid-cell" data-gid="${g.id}" data-pid="${p.id}" data-box="${i}" data-item="${itemKey}" title="長按可移動或交換" onclick="handleManualCellClick(event,${g.id},${p.id},${i},'${itemKey}')" onpointerdown="startManualCellHold(event,${g.id},${p.id},${i},'${itemKey}')" onpointerup="endManualCellHold(event)" onpointercancel="cancelManualCellHold()" oncontextmenu="event.preventDefault()"`:'';
+          const canDelete=!RO&&(g.manualTableMode||!slot.buyer.liftExtra);
+          h+=`<td${cellStyles.length?` style="${cellStyles.join(';')}"`:''}${cellAction}>${esc(slot.buyer.nick)}${slot.buyer.all?'（all）':''}${slot.buyer.bind?'(綁)':''}${slot.buyer.liftExtra?'(帶餘)':''}${slot.buyer.manual?'*':''}${canDelete?`<span class="slot-del" title="移除此格喊單" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();removeSlotUnit(${g.id},${p.id},${i},'${itemKey}','${encodeURIComponent(slot.buyer.nick)}',${slot.buyer.bind?1:0})">✕</span>`:''}</td>`;
         }
         else{
           const opened=Math.max(0,parseInt((p.blindCounts||{})[slot.item])||0);
-          const emptyBg=blindResult&&i<opened?'#e5f4e7':'#fdf1f6';
-          h+=`<td class="slot-empty" style="background:${emptyBg}" title="點擊追加喊單" onclick="fillSlot(${g.id},${p.id},${i},'${encodeURIComponent(slot.item)}')"></td>`;
+          const emptyBg=blindResult&&i<opened?'#e5f4e7':'#fdf1f6',itemKey=encodeURIComponent(slot.item);
+          const emptyAction=!RO?(g.manualTableMode?` data-gid="${g.id}" data-pid="${p.id}" data-box="${i}" data-item="${itemKey}" title="新增此格喊單" onclick="handleManualCellClick(event,${g.id},${p.id},${i},'${itemKey}')" onpointerdown="startManualCellHold(event,${g.id},${p.id},${i},'${itemKey}')" onpointerup="endManualCellHold(event)" onpointercancel="cancelManualCellHold()" oncontextmenu="event.preventDefault()"`:` title="點擊追加喊單" onclick="fillSlot(${g.id},${p.id},${i},'${itemKey}')"`):'';
+          h+=`<td class="slot-empty${g.manualTableMode&&!RO?' manual-grid-cell':''}" style="background:${emptyBg}"${emptyAction}></td>`;
         }
       }
       const sb=box.status==='成團'||box.status==='爆配'?'b-green':box.status==='含綁成團'?'b-purple':'b-amber';
@@ -1878,13 +1898,148 @@ function clearAutoBindOrders(g,p,item,qty,boxIdx){
   g.orders=next;
 }
 
-function removeSlotUnit(gid,pid,boxIdx,itemEnc,nickEnc,isBind){
+function manualCellRef(p,boxIdx,item){
+  const itemIdx=p.contents.indexOf(item);if(itemIdx<0)return null;
+  p.manualRows=Array.isArray(p.manualRows)?p.manualRows:[];
+  while(p.manualRows.length<=boxIdx)p.manualRows.push(p.contents.map(()=>null));
+  const row=p.manualRows[boxIdx];
+  while(row.length<p.contents.length)row.push(null);
+  return{row,index:itemIdx,cell:row[itemIdx]||null};
+}
+function countManualOrderCells(p,oid){
+  if(!oid)return 0;
+  return(p.manualRows||[]).reduce((sum,row)=>sum+(row||[]).filter(cell=>cell&&cell.oid===oid).length,0);
+}
+function clearManualOrderCells(g,oid){
+  if(g.manualTableMode)return;
+  for(const p of(g.boxProducts||[]))for(const row of(p.manualRows||[]))for(let i=0;i<(row||[]).length;i++)if(row[i]?.oid===oid)row[i]=null;
+}
+function detachManualCellOrder(g,p,cell){
+  if(g?.manualTableMode||!cell?.oid||cell.liftExtra)return;
+  const order=g.orders.find(o=>o.id===cell.oid);if(!order)return;
+  if(order.all){
+    const left=Math.max(0,countManualOrderCells(p,cell.oid)-1);
+    order.all=false;order.qty=left;
+    for(const row of(p.manualRows||[]))for(const saved of(row||[]))if(saved&&saved.oid===cell.oid)saved.all=false;
+  }else order.qty=Math.max(0,(parseInt(order.qty)||1)-1);
+  if(order.qty<=0)g.orders=g.orders.filter(o=>o!==order);
+}
+function addManualTableRow(gid,pid){
+  upG(gid,g=>{
+    if(!g.manualTableMode)return;
+    const p=(g.boxProducts||[]).find(x=>x.id===pid);if(!p)return;
+    p.manualRows=Array.isArray(p.manualRows)?p.manualRows:[];
+    p.manualRows.push(p.contents.map(()=>null));
+  });
+  render();
+}
+function showManualSlotModal(gid,pid,boxIdx,itemEnc){
+  const item=decodeURIComponent(itemEnc),g=getG(gid),p=(g?.boxProducts||[]).find(x=>x.id===pid);if(!g||!p||!g.manualTableMode)return;
+  const cell=manualCellRef(p,boxIdx,item)?.cell;
+  const title=cell?'編輯喊單':'新增喊單';
+  const members=Object.keys(getTeam()).sort((a,b)=>a.localeCompare(b,'zh-Hant'));
+  openModal(`<h3>${title}</h3>
+    <div class="form-group"><label>暱稱</label><input id="msNick" list="msTeamNames" value="${esc(cell?.nick||'')}"><datalist id="msTeamNames">${members.map(n=>`<option value="${esc(n)}"></option>`).join('')}</datalist></div>
+    <div class="btn-row"><button class="bp" onclick="saveManualSlot(${gid},${pid},${boxIdx},'${encodeURIComponent(item)}')">儲存</button><button onclick="closeModal()">取消</button></div>`);
+  setTimeout(()=>$('#msNick')?.focus(),100);
+}
+function saveManualSlot(gid,pid,boxIdx,itemEnc){
+  const item=decodeURIComponent(itemEnc),nick=$('#msNick')?.value.trim()||'';
+  if(!nick){alert('請輸入暱稱');return;}
+  const team=getTeam();
+  upG(gid,g=>{
+    if(!g.manualTableMode)return;
+    const p=(g.boxProducts||[]).find(x=>x.id===pid);if(!p)return;
+    const ref=manualCellRef(p,boxIdx,item);if(!ref)return;
+    const old=ref.cell;
+    ref.row[ref.index]={
+      nick,member:Object.prototype.hasOwnProperty.call(team,nick),
+      bind:!!old?.bind,all:!!old?.all,liftExtra:!!old?.liftExtra
+    };
+  });
+  closeModal();render();
+}
+let _manualHoldTimer=null,_manualMove=null,_manualSuppressClickUntil=0;
+function clearManualMoveSelection(){
+  document.querySelectorAll('.manual-moving').forEach(el=>el.classList.remove('manual-moving'));
+  _manualMove=null;
+}
+function cancelManualCellHold(){clearTimeout(_manualHoldTimer);_manualHoldTimer=null;}
+function startManualCellHold(ev,gid,pid,boxIdx,itemEnc){
+  if(_manualMove||(ev.pointerType==='mouse'&&ev.button!==0))return;
+  cancelManualCellHold();
+  const item=decodeURIComponent(itemEnc),el=ev.currentTarget,g=getG(gid),p=(g?.boxProducts||[]).find(x=>x.id===pid);
+  if(!p||!manualCellRef(p,boxIdx,item)?.cell)return;
+  _manualHoldTimer=setTimeout(()=>{
+    _manualMove={gid,pid,boxIdx,item};
+    _manualSuppressClickUntil=Date.now()+700;
+    document.querySelectorAll('.manual-moving').forEach(node=>node.classList.remove('manual-moving'));
+    el.classList.add('manual-moving');
+  },450);
+}
+function endManualCellHold(ev){
+  cancelManualCellHold();
+  if(!_manualMove)return;
+  const target=document.elementFromPoint(ev.clientX,ev.clientY)?.closest('.manual-grid-cell');
+  if(!target)return;
+  const gid=Number(target.dataset.gid),pid=Number(target.dataset.pid),boxIdx=Number(target.dataset.box),item=decodeURIComponent(target.dataset.item);
+  if(_manualMove.gid===gid&&_manualMove.pid===pid&&_manualMove.boxIdx===boxIdx&&_manualMove.item===item)return;
+  moveManualCell(gid,pid,boxIdx,item);
+}
+function handleManualCellClick(ev,gid,pid,boxIdx,itemEnc){
+  if(Date.now()<_manualSuppressClickUntil){ev.preventDefault();return;}
+  const item=decodeURIComponent(itemEnc);
+  if(_manualMove){moveManualCell(gid,pid,boxIdx,item);return;}
+  showManualSlotModal(gid,pid,boxIdx,itemEnc);
+}function swapManualCells(p,fromBox,fromItem,toBox,toItem){
+  const from=manualCellRef(p,fromBox,fromItem),to=manualCellRef(p,toBox,toItem);
+  if(!from?.cell||!to)return false;
+  const saved=from.cell;
+  from.row[from.index]=to.cell;
+  to.row[to.index]=saved;
+  return true;
+}
+function moveManualCell(gid,pid,toBox,toItem){
+  const from=_manualMove;if(!from||from.gid!==gid||from.pid!==pid)return false;
+  if(from.boxIdx===toBox&&from.item===toItem){clearManualMoveSelection();return false;}
+  let moved=false;
+  upG(gid,g=>{
+    if(!g.manualTableMode)return;
+    const p=(g.boxProducts||[]).find(x=>x.id===pid);if(!p)return;
+    moved=swapManualCells(p,from.boxIdx,from.item,toBox,toItem);
+  });
+  clearManualMoveSelection();
+  _manualSuppressClickUntil=Date.now()+500;
+  if(moved)render();
+  return moved;
+}
+function endManualCellHold(ev){
+  cancelManualCellHold();
+  if(!_manualMove)return;
+  const target=document.elementFromPoint(ev.clientX,ev.clientY)?.closest('.manual-grid-cell');
+  if(!target)return;
+  const gid=Number(target.dataset.gid),pid=Number(target.dataset.pid),boxIdx=Number(target.dataset.box),item=decodeURIComponent(target.dataset.item||'');
+  if(gid===_manualMove.gid&&pid===_manualMove.pid&&(boxIdx!==_manualMove.boxIdx||item!==_manualMove.item))moveManualCell(gid,pid,boxIdx,item);
+}
+function handleManualCellClick(ev,gid,pid,boxIdx,itemEnc){
+  ev.preventDefault();
+  if(Date.now()<_manualSuppressClickUntil)return;
+  const item=decodeURIComponent(itemEnc);
+  if(_manualMove){moveManualCell(gid,pid,boxIdx,item);return;}
+  showManualSlotModal(gid,pid,boxIdx,itemEnc);
+}function removeSlotUnit(gid,pid,boxIdx,itemEnc,nickEnc,isBind){
   const item=decodeURIComponent(itemEnc),nick=decodeURIComponent(nickEnc),g=getG(gid);
   const p=(g?.boxProducts||[]).find(b=>b.id===pid);
-  const source=g?.orders.find(o=>o.nick===nick&&o.item===item&&(!!o.bind)===(!!isBind)&&(p?orderMatches(p,o):true));
-  if(!confirm(source?.all?`取消 ${nick} 對「${item}」的 all？`:`移除 ${nick} 的「${item}」1 個？`))return;
+  const manualCell=g?.manualTableMode&&p?manualCellRef(p,boxIdx,item)?.cell:null;
+  const source=manualCell?.oid?g.orders.find(o=>o.id===manualCell.oid):g?.orders.find(o=>o.nick===nick&&o.item===item&&(!!o.bind)===(!!isBind)&&(p?orderMatches(p,o):true));
+  if(!confirm(manualCell?`清除此格的 ${nick}？`:(source?.all?`取消 ${nick} 對「${item}」的 all？`:`移除 ${nick} 的「${item}」1 個？`)))return;
   upG(gid,g=>{
     const p=(g.boxProducts||[]).find(b=>b.id===pid);
+    if(p&&g.manualTableMode){
+      const ref=manualCellRef(p,boxIdx,item);
+      if(ref?.cell)ref.row[ref.index]=null;
+      return;
+    }
     const key=boxIdx+'|||'+item;
     if(p&&g.keepTableOrderOnDelete)snapshotTableLayoutExcept(g,p,key);
     const o=g.orders.find(o=>o.nick===nick&&o.item===item&&(!!o.bind)===(!!isBind)&&(p?orderMatches(p,o):true));
@@ -2008,6 +2163,18 @@ function applyBind(gid,pid,boxIdx){
   const picks=[...document.querySelectorAll('.bindSel')].map(s=>({item:s.dataset.item,nick:s.value})).filter(x=>x.nick);
   upG(gid,g=>{
     const product=(g.boxProducts||[]).find(b=>b.id===pid);if(!product)return;
+    if(g.manualTableMode){
+      for(const item of product.contents){
+        const ref=manualCellRef(product,boxIdx,item);
+        if(ref?.cell?.bind){detachManualCellOrder(g,product,ref.cell);ref.row[ref.index]=null;}
+      }
+      const team=getTeam();
+      for(const x of picks){
+        const ref=manualCellRef(product,boxIdx,x.item);if(!ref||ref.cell)continue;
+        ref.row[ref.index]={nick:x.nick,member:Object.prototype.hasOwnProperty.call(team,x.nick),bind:true,all:false,liftExtra:false};
+      }
+      return;
+    }
     freezeConfirmedBoxes(g,product);
     clearAutoBindOrders(g,product,null,null,boxIdx);
     for(const x of picks){
@@ -2019,7 +2186,7 @@ function applyBind(gid,pid,boxIdx){
   closeModal();render();
 }
 function freezeConfirmedBoxes(g,p){
-  if(usesLegacyClosedRules(g)||!p||p.kind==='single')return;
+  if(g.manualTableMode||usesLegacyClosedRules(g)||!p||p.kind==='single')return;
   const info=calcBoxes(g,p);
   const frozen=p.frozenPins||{};
   info.boxes.forEach((box,boxIdx)=>{
@@ -2274,24 +2441,64 @@ function calcBoxesLegacy(g,p){
   return {demands,buyerMap,maxDemand,minDemand,boxesNeeded,complete,bindComplete,surplus,boxes};
 }
 
+function calcManualBoxes(g,p){
+  const rows=Array.isArray(p.manualRows)?p.manualRows:[];
+  const demands={},buyerMap={};
+  for(const item of p.contents){demands[item]=0;buyerMap[item]=[];}
+  const boxes=rows.map(row=>{
+    const box=p.contents.map((item,index)=>{
+      const saved=row?.[index]||null;
+      if(!saved)return{item,buyer:null};
+      const buyer={nick:saved.nick||'',oid:0,member:!!saved.member,bind:!!saved.bind,all:!!saved.all,liftExtra:!!saved.liftExtra};
+      demands[item]++;
+      let summary=buyerMap[item].find(x=>x.nick===buyer.nick&&x.bind===buyer.bind&&x.all===buyer.all&&x.liftExtra===buyer.liftExtra);
+      if(summary)summary.qty++;
+      else buyerMap[item].push({...buyer,qty:1});
+      return{item,buyer};
+    });
+    const emptySlots=box.filter(slot=>!slot.buyer);
+    box.bindPlan=getBoxBindPlan(p,box);
+    if(!emptySlots.length){
+      if(box.some(slot=>slot.buyer&&slot.buyer.bind)){box.status='含綁成團';}
+      else box.status='成團';
+    }else if(box.bindPlan.length===emptySlots.length)box.status='含綁成團';
+    else box.status='未成團';
+    return box;
+  });
+  const values=p.contents.map(item=>demands[item]||0);
+  const maxDemand=values.length?Math.max(...values):0;
+  const minDemand=values.length?Math.min(...values):0;
+  const complete=boxes.filter(box=>box.status==='成團').length;
+  const bindComplete=boxes.filter(box=>box.status==='含綁成團').length;
+  const surplus=boxes.reduce((sum,box)=>sum+box.filter(slot=>!slot.buyer).length,0);
+  const occupied=boxes.flat().filter(slot=>slot.buyer);
+  const onlyAll=occupied.length>0&&occupied.every(slot=>slot.buyer.all);
+  return{demands,buyerMap,maxDemand,minDemand,onlyAll,boxesNeeded:boxes.length,complete,bindComplete,surplus,boxes};
+}
 function calcBoxes(g,p){
+  if(g.manualTableMode&&p.kind!=='single')return calcManualBoxes(g,p);
   if(usesLegacyClosedRules(g))return calcBoxesLegacy(g,p);
   const demands={};
   const buyerMap={};
   for(const c of p.contents){demands[c]=0;buyerMap[c]=[];}
-  const liftQty={};const liftAdd={};const liftTake={};const liftTakeOid={};
-  const liftTargetIds={};const liftTargetMode={};
+  const liftQty={};const liftItemQty={};const liftAdd={};const liftTake={};const liftTakeOid={};
+  const liftTargetIds={};const liftTargetMode={};const liftAllTargetItems={};
   const orderById=new Map(g.orders.map(o=>[o.id,o]));
   for(const o of g.orders){
     if(o.lift&&!o.bind&&p.contents.includes(o.item)&&orderMatches(p,o)){
-      liftQty[o.nick]=(liftQty[o.nick]||0)+o.qty;
+      const itemQty=liftItemQty[o.nick]||(liftItemQty[o.nick]={});
+      itemQty[o.item]=(itemQty[o.item]||0)+o.qty;
+      liftQty[o.nick]=Math.max(liftQty[o.nick]||0,itemQty[o.item]);
       liftAdd[o.item]=(liftAdd[o.item]||0)+o.qty;
       if(Array.isArray(o.liftTargets)){
         liftTargetMode[o.nick]=true;
         const ids=liftTargetIds[o.nick]||(liftTargetIds[o.nick]=new Set());
         for(const rawId of o.liftTargets){
           const id=parseInt(rawId),target=orderById.get(id);
-          if(target&&!target.bind&&target.nick===o.nick&&p.contents.includes(target.item)&&orderMatches(p,target))ids.add(id);
+          if(target&&!target.bind&&target.nick===o.nick&&p.contents.includes(target.item)&&orderMatches(p,target)){
+            ids.add(id);
+            if(target.all)(liftAllTargetItems[o.nick]=liftAllTargetItems[o.nick]||new Set()).add(target.item);
+          }
         }
       }
       const take=Math.max(0,parseInt(o.liftCount)||0);
@@ -2329,7 +2536,7 @@ function calcBoxes(g,p){
     }
     const sortFn=(a,b)=>compareBoxOrders(a,b,rule,distinct);
     const sorted=[...(buyerMap[c]||[])].sort(sortFn);
-    const allWinner=sorted.filter(b=>b.all).sort(compareAllBoundary)[0]||null;
+    const allWinner=sorted.filter(b=>b.all&&!(b.isLiftTarget&&(liftQty[b.nick]||0)>0)).sort(compareAllBoundary)[0]||null;
     const frozenRegular={};
     for(const[key,pin]of Object.entries(p.frozenPins||{})){
       if(!key.endsWith('|||'+c)||!pin||!pin.oid)continue;
@@ -2360,12 +2567,30 @@ function calcBoxes(g,p){
   const allOnlyFallback=p.kind==='blind'&&p.blindOpened?blindAllCount:5;
   let boxesNeeded=onlyAll?(Math.max(0,parseInt(p.maxBoxes)||0)||allOnlyFallback):maxDemand;
   if(p.maxBoxes && boxesNeeded>p.maxBoxes) boxesNeeded=p.maxBoxes;
+  for(const [nick,itemQty] of Object.entries(liftItemQty)){
+    const allTargets=liftAllTargetItems[nick];
+    if(!allTargets||!allTargets.size)continue;
+    const baseCounts={};
+    for(const item of p.contents){
+      baseCounts[item]=Math.max(0,(demands[item]||0)-(itemQty[item]||0));
+      if(allWinnerMap[item]||allTargets.has(item))baseCounts[item]=Math.max(baseCounts[item],boxesNeeded);
+    }
+    const before=Math.min(...p.contents.map(item=>baseCounts[item]||0));
+    const after=Math.min(...p.contents.map(item=>(baseCounts[item]||0)+(itemQty[item]||0)));
+    const frozenRows=new Set();
+    for(const [key,pin] of Object.entries(p.frozenPins||{})){
+      const order=pin?.oid?orderById.get(pin.oid):null;
+      if(order&&order.nick===nick&&(order.lift||liftTargetIds[nick]?.has(order.id)))frozenRows.add(parseInt(key.split('|||')[0]));
+    }
+    const calculated=Math.max(0,after-before);
+    liftQty[nick]=Math.min(liftQty[nick]||0,Math.max(calculated,frozenRows.size));
+  }
   const bind=p.bindItems||{};
   let surplus=0;
   for(const c of p.contents) surplus+=Math.max(0,boxesNeeded-(demands[c]||0));
 
   const boxes=[];
-  const remaining={};
+  const remaining={};const liftUnitUsed={};
   for(const c of p.contents){
     const sorted=sortedMap[c]||[];
     const allWinner=allWinnerMap[c]||null;
@@ -2380,20 +2605,32 @@ function calcBoxes(g,p){
     let extraRemaining=Math.max(0,allFill-frozenAllTotal);
     const allExtra={};
     const liftedAll=sorted.filter(b=>b.all&&(b.isLift||b.isLiftTarget));
+    const allLiftQuota=b=>b.isLiftTarget?Math.max(0,...Object.values(liftItemQty[b.nick]||{})):Math.max(0,liftQty[b.nick]||0);
     const liftUsed={};
     for(const b of liftedAll)liftUsed[b.nick]=(liftUsed[b.nick]||0)+(frozenAll[b.oid]||0);
     for(const b of liftedAll){
       if(b===allWinner)continue;
-      const allowance=Math.max(0,(liftQty[b.nick]||0)-(liftUsed[b.nick]||0));
+      const allowance=Math.max(0,allLiftQuota(b)-(liftUsed[b.nick]||0));
       const take=Math.min(extraRemaining,allowance);
       if(take){allExtra[b.oid]=(allExtra[b.oid]||0)+take;liftUsed[b.nick]=(liftUsed[b.nick]||0)+take;extraRemaining-=take;}
       if(!extraRemaining)break;
     }
-    if(allWinner&&extraRemaining)allExtra[allWinner.oid]=(allExtra[allWinner.oid]||0)+extraRemaining;
+    const fallbackAll=allWinner||sorted.filter(b=>b.all).sort(compareAllBoundary)[0]||null;
+    if(fallbackAll&&extraRemaining)allExtra[fallbackAll.oid]=(allExtra[fallbackAll.oid]||0)+extraRemaining;
     for(const b of sorted){
       const qty=b.all?((frozenAll[b.oid]||0)+(allExtra[b.oid]||0)):b._activeQty;
       if(b.all){b.qty=qty;if(qty)demands[c]+=qty;}
-      for(let i=0;i<qty;i++) remaining[c].push({nick:b.nick,all:b.all,bind:b.bind,fixed:b.fixed,isLift:b.all?((b.isLift||b.isLiftTarget)&&i<(liftQty[b.nick]||0)):b.isLift,memberPriority:!!b.memberPriority,priorityCls:b._cls,oid:b.oid});
+      for(let i=0;i<qty;i++){
+        let isLift=false,liftOverflow=false;
+        if(b.all)isLift=(b.isLift||b.isLiftTarget)&&i<allLiftQuota(b);
+        else if(b.isLift){
+          const key=b.nick+'|||'+c,used=liftUnitUsed[key]||0;
+          isLift=used<(liftQty[b.nick]||0);
+          liftOverflow=!isLift;
+          liftUnitUsed[key]=used+1;
+        }
+        remaining[c].push({nick:b.nick,all:b.all,bind:b.bind,fixed:b.fixed,isLift,liftOverflow,allRemainder:b.all&&b.isLiftTarget&&!isLift,memberPriority:!!b.memberPriority,priorityCls:b._cls,oid:b.oid});
+      }
     }
   }
   const minNoLift=p.contents.length?Math.min(...p.contents.map(c=>(demands[c]||0)-(liftAdd[c]||0))):0;
@@ -2407,11 +2644,13 @@ function calcBoxes(g,p){
     for(const c of p.contents){
       const q=remaining[c];
       const liftUnits=q.filter(u=>u.isLift);
-      const nonLift=q.filter(u=>!u.isLift);
+      const overflowUnits=q.filter(u=>u.liftOverflow);
+      const allRemainderUnits=q.filter(u=>u.allRemainder);
+      const nonLift=q.filter(u=>!u.isLift&&!u.liftOverflow&&!u.allRemainder);
       const locked=nonLift.slice(0,lockN);
       const rest=nonLift.slice(lockN);
       const byNick={};const promoUsed={};const normal=[];
-      for(const u of liftUnits){(byNick[u.nick]=byNick[u.nick]||[]).push(u);}
+      for(const u of liftUnits){(byNick[u.nick]=byNick[u.nick]||[]).push(u);if(u.all)promoUsed[u.nick]=(promoUsed[u.nick]||0)+1;}
       for(const u of rest){
         const targetAllowed=!liftTargetMode[u.nick]||!!liftTargetIds[u.nick]?.has(u.oid);
         if(!u.bind&&targetAllowed&&liftQty[u.nick]>0&&(promoUsed[u.nick]||0)<liftQty[u.nick]){
@@ -2420,6 +2659,7 @@ function calcBoxes(g,p){
         }
         normal.push(u);
       }
+      normal.push(...overflowUnits,...allRemainderUnits);
       styleData[c]={locked,byNick,normal};
     }
     const blocks={};const blockSizes={};let offsetTotal=0;
@@ -2496,6 +2736,63 @@ function calcBoxes(g,p){
   for(const[key,pin]of frozenEntries.filter(([,pin])=>!pin||pin.empty||!team[pin.nick]))reservePin(key,pin,true);
   for(const[key,pin]of Object.entries(layoutPins))reservePin(key,pin,true);
   for(const[key,nick]of Object.entries(pins))reservePin(key,nick,false);
+  if(liftersOrder.length){
+    const lifterSet=new Set(liftersOrder),bundles={};
+    for(const item of p.contents){
+      const keep=[];
+      for(const unit of remaining[item]){
+        if(unit&&lifterSet.has(unit.nick)&&(unit.isLift||unit.lifted||unit.liftExtra||unit.liftOverflow)){
+          const byItem=bundles[unit.nick]||(bundles[unit.nick]={});
+          (byItem[item]=byItem[item]||[]).push(unit);
+        }else if(unit)keep.push(unit);
+      }
+      remaining[item]=keep;
+    }
+    let rowCursor=Math.max(0,lockN);
+    for(const nick of liftersOrder){
+      const byItem=bundles[nick]||{};
+      if(g.status==='進行中'){
+        const anchorRows=[...new Set(
+          Object.entries(reserved)
+            .filter(([,unit])=>unit&&unit.nick===nick&&(unit.isLift||unit.lifted||unit.liftExtra))
+            .map(([key])=>parseInt(key.split('|||')[0]))
+            .filter(Number.isFinite)
+        )].sort((a,b)=>a-b);
+        for(const row of anchorRows){
+          for(const item of p.contents){
+            const key=row+'|||'+item,current=reserved[key];
+            if(current&&current.nick===nick&&(current.isLift||current.lifted||current.liftExtra))continue;
+            const unit=(byItem[item]||[]).shift();
+            if(!unit)continue;
+            if(Object.prototype.hasOwnProperty.call(layoutPins,key)||Object.prototype.hasOwnProperty.call(pins,key)){
+              (byItem[item]=byItem[item]||[]).unshift(unit);
+              continue;
+            }
+            if(current)remaining[item].unshift(current);
+            reserved[key]=unit;
+            if(Object.prototype.hasOwnProperty.call(frozenPins,key)){
+              frozenPins[key]={nick:unit.nick,bind:!!unit.bind,oid:unit.oid||0};
+            }
+          }
+          rowCursor=Math.max(rowCursor,row+1);
+        }
+      }
+      const count=Math.max(0,...p.contents.map(item=>(byItem[item]||[]).length));
+      for(let i=0;i<count;i++){
+        const parts=p.contents.map(item=>({item,unit:(byItem[item]||[])[i]})).filter(part=>part.unit);
+        if(!parts.length)continue;
+        let row=rowCursor;
+        const limit=p.maxBoxes?Math.max(0,parseInt(p.maxBoxes)||0):Number.MAX_SAFE_INTEGER;
+        while(row<limit&&parts.some(part=>Object.prototype.hasOwnProperty.call(reserved,row+'|||'+part.item)))row++;
+        if(row>=limit){
+          for(const part of parts)remaining[part.item].unshift(part.unit);
+          continue;
+        }
+        for(const part of parts)reserved[row+'|||'+part.item]=part.unit;
+        rowCursor=row+1;
+      }
+    }
+  }
   let capacityNeeded=boxesNeeded;
   for(const c of p.contents){
     const occupied=Object.keys(reserved).filter(key=>key.endsWith('|||'+c)).length;
@@ -2521,6 +2818,130 @@ function calcBoxes(g,p){
       box.status='含綁成團';bindComplete++;
     } else box.status='未成團';
     boxes.push(box);
+  }
+
+  if(liftersOrder.length){
+    const hasKey=(obj,key)=>Object.prototype.hasOwnProperty.call(obj||{},key);
+    const protectedRow=row=>p.contents.some(item=>{
+      const key=row+'|||'+item;
+      return hasKey(frozenPins,key)||hasKey(layoutPins,key)||hasKey(pins,key);
+    });
+    const isBundleUnit=unit=>unit&&(unit.isLift||unit.lifted||unit.liftExtra||unit.liftOverflow);
+    const pools={};
+    for(let row=0;row<boxes.length;row++){
+      if(protectedRow(row))continue;
+      for(const slot of boxes[row]){
+        const unit=slot.buyer;
+        if(!isBundleUnit(unit))continue;
+        const byItem=pools[unit.nick]||(pools[unit.nick]={});
+        (byItem[slot.item]=byItem[slot.item]||[]).push({unit,row});
+        slot.buyer=null;
+      }
+    }
+    const liftTimes={};
+    for(const o of g.orders){
+      if(!o.lift||o.bind||!orderMatches(p,o))continue;
+      const time=boxOrderTime(o);
+      liftTimes[o.nick]=Math.min(liftTimes[o.nick]??Number.MAX_SAFE_INTEGER,time);
+    }
+    const bundles=[];
+    for(const nick of liftersOrder){
+      const byItem=pools[nick]||{};
+      const count=Math.max(0,...p.contents.map(item=>(byItem[item]||[]).length));
+      for(let index=0;index<count;index++){
+        const parts=p.contents.map(item=>{
+          const entry=(byItem[item]||[])[index];
+          return entry?{item,unit:entry.unit,sourceRow:entry.row}:null;
+        }).filter(Boolean);
+        if(parts.length)bundles.push({nick,index,parts,time:liftTimes[nick]??Number.MAX_SAFE_INTEGER});
+      }
+    }
+    const emptyBox=()=>p.contents.map(item=>({item,buyer:null}));
+    const ensureRow=row=>{
+      while(boxes.length<=row)boxes.push(emptyBox());
+      return boxes[row];
+    };
+    const classify=box=>{
+      const empties=box.filter(slot=>!slot.buyer);
+      const plan=getBoxBindPlan(p,box);
+      if(!empties.length)return box.some(slot=>slot.buyer?.bind)?2:3;
+      return plan.length===empties.length?2:1;
+    };
+    const simulate=(bundle,row)=>{
+      if(protectedRow(row))return null;
+      const current=row<boxes.length?boxes[row]:emptyBox();
+      const copy=current.map(slot=>({item:slot.item,buyer:slot.buyer}));
+      for(const part of bundle.parts){
+        const slot=copy.find(cell=>cell.item===part.item);
+        if(!slot||slot.buyer?._liftPacked)return null;
+        slot.buyer=part.unit;
+      }
+      return classify(copy);
+    };
+    const configuredLimit=Math.max(0,parseInt(p.maxBoxes)||0);
+    const scheduleLimit=configuredLimit||Math.max(boxes.length+bundles.length+8,16);
+    const displaced={};
+    const pending=[...bundles];
+    let cursor=0;
+    while(pending.length){
+      let selected=-1,chosen=-1,chosenScore=0;
+      for(let index=0;index<pending.length;index++){
+        const bundle=pending[index];
+        let rowChoice=-1,bestScore=0;
+        for(let row=cursor;row<scheduleLimit;row++){
+          const score=simulate(bundle,row)||0;
+          if(score>bestScore){bestScore=score;rowChoice=row;if(score===3)break;}
+        }
+        if(rowChoice<0)continue;
+        const current=selected>=0?pending[selected]:null;
+        if(selected<0||bestScore>chosenScore||
+          (bestScore===chosenScore&&(bundle.time<current.time||
+          (bundle.time===current.time&&bundle.index<current.index)))){
+          selected=index;chosen=rowChoice;chosenScore=bestScore;
+        }
+      }
+      if(selected<0)break;
+      const bundle=pending.splice(selected,1)[0];
+      const row=ensureRow(chosen);
+      for(const part of bundle.parts){
+        const slot=row.find(cell=>cell.item===part.item);
+        if(slot.buyer){
+          (displaced[part.item]=displaced[part.item]||[]).push({unit:slot.buyer,minRow:chosen+1});
+        }
+        part.unit._liftPacked=true;
+        slot.buyer=part.unit;
+      }
+      cursor=chosen+1;
+    }
+    for(const item of p.contents){
+      for(const entry of displaced[item]||[]){
+        let placed=false;
+        const limit=scheduleLimit;
+        for(let row=entry.minRow;row<limit;row++){
+          if(protectedRow(row))continue;
+          const slot=ensureRow(row).find(cell=>cell.item===item);
+          if(slot&&!slot.buyer){slot.buyer=entry.unit;placed=true;break;}
+        }
+        if(!placed&&!p.maxBoxes){
+          const row=ensureRow(boxes.length);
+          row.find(cell=>cell.item===item).buyer=entry.unit;
+        }
+      }
+    }
+    complete=0;bindComplete=0;
+    for(const box of boxes){
+      for(const slot of box)if(slot.buyer)delete slot.buyer._liftPacked;
+      const emptySlots=box.filter(slot=>!slot.buyer);
+      box.bindPlan=getBoxBindPlan(p,box);
+      if(!emptySlots.length){
+        if(box.some(slot=>slot.buyer&&slot.buyer.bind)){box.status='含綁成團';bindComplete++;}
+        else{box.status='成團';complete++;}
+      }else if(box.bindPlan.length===emptySlots.length){
+        box.status='含綁成團';bindComplete++;
+      }else box.status='未成團';
+    }
+    boxesNeeded=boxes.length;
+    surplus=boxes.reduce((sum,box)=>sum+box.filter(slot=>!slot.buyer).length,0);
   }
 
   return {demands,buyerMap,maxDemand,minDemand,onlyAll,boxesNeeded,complete,bindComplete,surplus,boxes};
@@ -3340,13 +3761,18 @@ function saveOrderEdit(gid,oid){
     if(product&&product.kind!=='single'){freezeConfirmedBoxes(g,product);clearAutoBindOrders(g,product,newItem,newAll?null:(newItem===o.item?Math.max(0,newQty-o.qty):newQty));}
     o.nick=newNick;o.item=newItem;
     o.qty=newAll?1:newQty;o.all=newAll;o.price=parseFloat($('#eOP').value)||0;o.note=$('#eONote').value.trim();o.ts=newTs;
+    if(!g.manualTableMode)for(const p of(g.boxProducts||[]))for(const row of(p.manualRows||[]))for(let i=0;i<(row||[]).length;i++){
+      const cell=row[i];if(!cell||cell.oid!==oid)continue;
+      if(p.contents[i]!==newItem)row[i]=null;
+      else{cell.nick=newNick;cell.all=newAll;}
+    }
     o.lift=isLift;o.liftCount=liftCount;
     if(!usesLegacyClosedRules(g)){o.liftTargets=isLift?[...liftTargets]:[];o.memberPriority=memberPriority;if(isLift)g.orderRulesVersion=2;}
     delete o.bindLift;});
   closeModal();render();
 }
-function delOrder(gid,oid){if(!confirm('刪除？'))return;upG(gid,g=>{g.orders=g.orders.filter(o=>o.id!==oid);});render();}
-function clearOrders(gid){if(!confirm('清除全部喊單？'))return;upG(gid,g=>{g.orders=[];});render();}
+function delOrder(gid,oid){if(!confirm('刪除？'))return;upG(gid,g=>{clearManualOrderCells(g,oid);g.orders=g.orders.filter(o=>o.id!==oid);});render();}
+function clearOrders(gid){if(!confirm('清除全部喊單？'))return;upG(gid,g=>{g.orders=[];if(!g.manualTableMode)for(const p of(g.boxProducts||[]))if(Array.isArray(p.manualRows))p.manualRows=p.manualRows.map(row=>(row||[]).map(()=>null));});render();}
 
 function showAddItemModal(gid){
   const g=getG(gid);
