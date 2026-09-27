@@ -691,11 +691,29 @@ function renderGroup(){
   syncHiddenStatsBtn();
 }
 
+function collapseOrderListRows(orders){
+  const rows=[],manual=new Map();
+  for(const o of orders||[]){
+    if(!o.manualGrid){rows.push(o);continue;}
+    const key=JSON.stringify([o.nick,o.item,o.bpId||null,!!o.manualLift]);
+    const saved=manual.get(key);
+    if(saved){
+      saved.qty+=Math.max(0,parseInt(o.qty)||0);
+      saved.ts=Math.min(saved.ts||Number.MAX_SAFE_INTEGER,o.ts||Number.MAX_SAFE_INTEGER);
+      saved._manualOrderCount++;
+    }else{
+      const row={...o,qty:Math.max(0,parseInt(o.qty)||0),_manualOrderCount:1};
+      manual.set(key,row);rows.push(row);
+    }
+  }
+  return rows;
+}
 function renderOrdersTab(g){
   const st=S();
   const _team=getTeam();
   const nicks=[...new Set(g.orders.map(o=>o.nick))].sort();
   const items=[...new Set(g.orders.map(o=>o.item))].sort();
+  const listOrders=collapseOrderListRows(g.orders);
   const isBox=g.type==='box';
   const confirmed=getConfirmedOrders(g);
   const buyers=new Set(confirmed.map(o=>o.nick)).size;
@@ -715,7 +733,7 @@ function renderOrdersTab(g){
       <div class="stat"><div class="stat-l">總金額</div><div class="stat-v">$${totalAmt.toLocaleString()}</div></div>
     </div></div>`;
 
-  h+=`<div class="card"><div class="card-header"><h3 style="margin:0">喊單列表 (${g.orders.length})</h3>
+  h+=`<div class="card"><div class="card-header"><h3 style="margin:0">喊單列表 (${listOrders.length})</h3>
     <button class="bs bd" onclick="clearOrders(${g.id})">清除全部</button></div>`;
   let itemFilterHtml;
   const bps=g.boxProducts||[];
@@ -732,7 +750,7 @@ function renderOrdersTab(g){
     ${itemFilterHtml}
     <select onchange="sNick=this.value;render()"><option value="">全部${esc(st.fieldNick)}</option>${nicks.map(n=>`<option value="${esc(n)}" ${sNick===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>`;
 
-  let filtered=[...g.orders].sort((a,b)=>boxOrderTime(a)-boxOrderTime(b)||(a.id||0)-(b.id||0));
+  let filtered=[...listOrders].sort((a,b)=>boxOrderTime(a)-boxOrderTime(b)||(a.id||0)-(b.id||0));
   if(sNick) filtered=filtered.filter(o=>o.nick===sNick);
   if(sItem){
     if(sItem.startsWith('bp:')){
@@ -760,7 +778,7 @@ function renderOrdersTab(g){
       const pr=effPrice(g,o);
       const isTeam=!!_team[o.nick];
       const liftCount=Math.max(0,parseInt(o.liftCount)||0),liftTargetCount=Array.isArray(o.liftTargets)?o.liftTargets.length:0;
-      const fxBadge=(!isTeam&&o.fixed==='slot'?` <span class="badge b-purple">固${o.fixedRank||''}</span>`:!isTeam&&o.fixed==='pick'?' <span class="badge b-teal">撿</span>':'')+(o.lift?` <span class="badge b-amber">提${liftTargetCount?' · 指定'+liftTargetCount:''}${liftCount?' · 帶'+liftCount:''}</span>`:'');
+      const fxBadge=(!isTeam&&o.fixed==='slot'?` <span class="badge b-purple">固${o.fixedRank||''}</span>`:!isTeam&&o.fixed==='pick'?' <span class="badge b-teal">撿</span>':'')+(o.manualLift?' <span class="badge b-amber">提</span>':o.lift?` <span class="badge b-amber">提${liftTargetCount?' · 指定'+liftTargetCount:''}${liftCount?' · 帶'+liftCount:''}</span>`:'');
       h+=`<tr><td>${isTeam?`<span style="color:#a32d2d;font-weight:bold">${esc(o.nick)}</span>`:esc(o.nick)}${fxBadge}</td><td>${esc(o.item)}</td>
         ${isBox?`<td>${boxName?`<span class="badge b-coral">${esc(boxName)}</span>`:`<span class="muted">未對應</span>`}</td>`:''}
         <td>${o.all?'<span class="badge b-green">已 all</span>':o.qty}</td><td>${pr?'$'+pr:'-'}</td><td>${o.all?'<span class="muted">依成團數</span>':pr?'$'+(o.qty*pr):'-'}</td>
@@ -1696,7 +1714,8 @@ function toggleTableDeleteAddon(gid,enabled){
       const info=calcBoxes(g,p);
       p.manualRows=info.boxes.map(box=>box.map(slot=>slot.buyer?{
         nick:slot.buyer.nick,member:Object.prototype.hasOwnProperty.call(team,slot.buyer.nick),bind:!!slot.buyer.bind,
-        all:!!slot.buyer.all,liftExtra:!!slot.buyer.liftExtra
+        all:!!slot.buyer.all,liftExtra:!!slot.buyer.liftExtra,
+        manualLift:!!(slot.buyer.isLift||slot.buyer.liftExtra),manualLiftTarget:!!slot.buyer.lifted
       }:null));
     }
     g.manualTableMode=true;
@@ -1796,7 +1815,17 @@ function boxOrderRecords(g,p,item){
 function boxOrderRecordsHtml(g,p,item){
   const records=boxOrderRecords(g,p,item);
   if(!records.length)return '-';
-  return records.map(o=>`${esc(o.nick)}${o.lift?'(帶餘)':''}${o.all?'（已 all）':'×'+Math.max(0,parseInt(o.qty)||0)}`).join(', ');
+  return collapseOrderListRows(records).map(o=>`${esc(o.nick)}${o.manualLift?'(提配)':o.lift?'(帶餘)':''}${o.all?'（已 all）':'×'+Math.max(0,parseInt(o.qty)||0)}`).join(', ');
+}
+function isLiftDisplayBuyer(g,box,buyer){
+  if(!buyer)return false;
+  if(buyer.manualLift||buyer.manualLiftTarget||buyer.isLift||buyer.lifted||buyer.liftExtra)return true;
+  if(!buyer.oid)return false;
+  return box.some(slot=>{
+    if(!slot.buyer?.oid||slot.buyer.nick!==buyer.nick)return false;
+    const source=g.orders.find(o=>o.id===slot.buyer.oid);
+    return !!(source?.lift&&Array.isArray(source.liftTargets)&&source.liftTargets.some(id=>Number(id)===Number(buyer.oid)));
+  });
 }
 function bpDetailHtml(g,p){
   let h='';
@@ -1893,10 +1922,11 @@ function bpDetailHtml(g,p){
             else cellStyles.push('background:#fde7ec');
           }
           if(bindPaired)cellStyles.push('color:#2f6fa7','font-weight:bold');
+          const showLift=isLiftDisplayBuyer(g,box,slot.buyer);
           const manualCell=g.manualTableMode&&!RO,itemKey=encodeURIComponent(slot.item);
           const cellAction=manualCell?` class="manual-grid-cell" data-gid="${g.id}" data-pid="${p.id}" data-box="${i}" data-item="${itemKey}" title="長按可移動或交換" onclick="handleManualCellClick(event,${g.id},${p.id},${i},'${itemKey}')" onpointerdown="startManualCellHold(event,${g.id},${p.id},${i},'${itemKey}')" onpointerup="endManualCellHold(event)" onpointercancel="cancelManualCellHold()" oncontextmenu="event.preventDefault()"`:'';
           const canDelete=!RO&&(g.manualTableMode||!slot.buyer.liftExtra);
-          h+=`<td${cellStyles.length?` style="${cellStyles.join(';')}"`:''}${cellAction}>${esc(slot.buyer.nick)}${slot.buyer.all&&!slot.buyer.bind?'（all）':''}${slot.buyer.bind?'(綁)':''}${slot.buyer.liftExtra?'(帶餘)':''}${slot.buyer.manual?'*':''}${canDelete?`<span class="slot-del" title="移除此格喊單" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();removeSlotUnit(${g.id},${p.id},${i},'${itemKey}','${encodeURIComponent(slot.buyer.nick)}',${slot.buyer.bind?1:0})">✕</span>`:''}</td>`;
+          h+=`<td${cellStyles.length?` style="${cellStyles.join(';')}"`:''}${cellAction}>${showLift?`<span style="color:#8f1d2c;font-weight:700">${esc(slot.buyer.nick)}(提)</span>`:esc(slot.buyer.nick)}${slot.buyer.all&&!slot.buyer.bind?'（all）':''}${slot.buyer.bind?'(綁)':''}${slot.buyer.manual?'*':''}${canDelete?`<span class="slot-del" title="移除此格喊單" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();removeSlotUnit(${g.id},${p.id},${i},'${itemKey}','${encodeURIComponent(slot.buyer.nick)}',${slot.buyer.bind?1:0})">✕</span>`:''}</td>`;
         }
         else{
           const opened=Math.max(0,parseInt((p.blindCounts||{})[slot.item])||0);
@@ -2057,18 +2087,27 @@ function removeManualTableRow(gid,pid,boxIdx){
   });
   clearManualMoveSelection();
   render();
-}function showManualSlotModal(gid,pid,boxIdx,itemEnc){
+}
+function toggleManualLiftRole(activeId,otherId){
+  const active=$('#'+activeId),other=$('#'+otherId);
+  if(active?.checked&&other)other.checked=false;
+}
+function showManualSlotModal(gid,pid,boxIdx,itemEnc){
   const item=decodeURIComponent(itemEnc),g=getG(gid),p=(g?.boxProducts||[]).find(x=>x.id===pid);if(!g||!p||!g.manualTableMode)return;
   const cell=manualCellRef(p,boxIdx,item)?.cell;
   const title=cell?'編輯喊單':'新增喊單';
   const members=Object.keys(getTeam()).sort((a,b)=>a.localeCompare(b,'zh-Hant'));
   openModal(`<h3>${title}</h3>
     <div class="form-group"><label>暱稱</label><input id="msNick" list="msTeamNames" value="${esc(cell?.nick||'')}"><datalist id="msTeamNames">${members.map(n=>`<option value="${esc(n)}"></option>`).join('')}</datalist></div>
+    <div style="display:flex;align-items:center;gap:16px;margin:0 0 12px">
+      <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" id="msLift" ${cell?.manualLift?'checked':''} onchange="toggleManualLiftRole('msLift','msLiftTarget')">提配</label>
+      <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" id="msLiftTarget" ${cell?.manualLiftTarget?'checked':''} onchange="toggleManualLiftRole('msLiftTarget','msLift')">被提配</label>
+    </div>
     <div class="btn-row"><button class="bp" onclick="saveManualSlot(${gid},${pid},${boxIdx},'${encodeURIComponent(item)}')">儲存</button><button onclick="closeModal()">取消</button></div>`);
   setTimeout(()=>$('#msNick')?.focus(),100);
 }
 function saveManualSlot(gid,pid,boxIdx,itemEnc){
-  const item=decodeURIComponent(itemEnc),nick=$('#msNick')?.value.trim()||'';
+  const item=decodeURIComponent(itemEnc),nick=$('#msNick')?.value.trim()||'',manualLift=!!$('#msLift')?.checked,manualLiftTarget=!!$('#msLiftTarget')?.checked;
   if(!nick){alert('請輸入暱稱');return;}
   const team=getTeam();
   upG(gid,g=>{
@@ -2077,12 +2116,12 @@ function saveManualSlot(gid,pid,boxIdx,itemEnc){
     const ref=manualCellRef(p,boxIdx,item);if(!ref)return;
     const old=ref.cell,member=Object.prototype.hasOwnProperty.call(team,nick);
     if(old){
-      old.nick=nick;old.member=member;
-      if(old.manualOrder&&old.oid){const order=g.orders.find(o=>o.id===old.oid);if(order)order.nick=nick;}
+      old.nick=nick;old.member=member;old.manualLift=manualLift;old.manualLiftTarget=manualLiftTarget;
+      if(old.manualOrder&&old.oid){const order=g.orders.find(o=>o.id===old.oid);if(order){order.nick=nick;order.manualLift=manualLift;order.manualLiftTarget=manualLiftTarget;}}
     }else{
       const oid=g.nOid++;
-      g.orders.push({id:oid,nick,item,series:'',qty:1,price:lookupPrice(g,item,pid)||0,note:'',bpId:pid,ts:Date.now(),manualGrid:true});
-      ref.row[ref.index]={nick,member,bind:false,all:false,liftExtra:false,oid,manualOrder:true};
+      g.orders.push({id:oid,nick,item,series:'',qty:1,price:lookupPrice(g,item,pid)||0,note:'',bpId:pid,ts:Date.now(),manualGrid:true,manualLift,manualLiftTarget});
+      ref.row[ref.index]={nick,member,bind:false,all:false,liftExtra:false,manualLift,manualLiftTarget,oid,manualOrder:true};
     }
   });
   closeModal();render();
@@ -2217,6 +2256,13 @@ function refreshFillMemberPriority(gid){
   const available=g?.type==='box'&&!!getTeam()[nick]&&!usesLegacyClosedRules(g);
   wrap.style.display=available?'inline-flex':'none';cb.disabled=!available;if(!available)cb.checked=false;
 }
+function orderHasFixedSlot(nick,item){return getTeam()[nick]?.[item]?.t==='slot';}
+function refreshFillCancelFixed(gid,item){
+  const wrap=$('#fsCancelFixedWrap'),cb=$('#fsCancelFixed');if(!wrap||!cb)return;
+  const g=getG(gid),nick=$('#fsNick')?.value.trim()||'';
+  const available=!!g&&orderHasFixedSlot(nick,item);
+  wrap.style.display=available?'inline-flex':'none';cb.disabled=!available;if(!available)cb.checked=false;
+}
 function fillSlot(gid,pid,boxIdx,itemEnc){
   const item=decodeURIComponent(itemEnc);
   const g=getG(gid);
@@ -2226,6 +2272,7 @@ function fillSlot(gid,pid,boxIdx,itemEnc){
     <div class="form-group" style="margin:10px 0"><label>暱稱</label>
       <input id="fsNick" list="fsDl"><datalist id="fsDl">${nicks.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
     <label id="fsMemberPriorityWrap" style="display:none;align-items:center;gap:5px;font-size:13px;margin:0 0 10px;cursor:pointer"><input type="checkbox" id="fsMemberPriority">優先於群外</label>
+    <label id="fsCancelFixedWrap" style="display:none;align-items:center;gap:5px;font-size:13px;margin:0 0 10px;cursor:pointer"><input type="checkbox" id="fsCancelFixed">取消固位效果</label>
     <div style="margin-bottom:12px">
       <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="fsLift" ${liftLocked?'disabled':''} onchange="toggleFillLiftOptions(this,${gid},${pid},decodeURIComponent('${encodeURIComponent(item)}'))">帶餘提配</label>
@@ -2235,8 +2282,8 @@ function fillSlot(gid,pid,boxIdx,itemEnc){
       ${liftLocked?'<div class="muted" style="font-size:11px;margin-top:5px;color:#a32d2d">此團已截團並鎖定舊排序，不可新增或修改帶餘提配。</div>':''}<div style="font-size:12px;font-weight:600;margin-top:8px">指定要提配的既有喊單（必選，可複選）</div><div id="fsLiftTargets" style="margin-top:5px;padding:8px;border:1px solid #ead7df;border-radius:6px"><div class="muted" style="font-size:12px">請先輸入暱稱</div></div>
     </div>
     <div class="btn-row"><button class="bp" onclick="doFillSlot(${gid},${pid},${boxIdx},'${encodeURIComponent(item)}')">新增</button><button onclick="closeModal()">取消</button></div>`);
-  $('#fsNick').addEventListener('input',()=>{refreshFillLiftTargets(gid,pid,item);refreshFillMemberPriority(gid);});
-  refreshFillLiftTargets(gid,pid,item);refreshFillMemberPriority(gid);
+  $('#fsNick').addEventListener('input',()=>{refreshFillLiftTargets(gid,pid,item);refreshFillMemberPriority(gid);refreshFillCancelFixed(gid,item);});
+  refreshFillLiftTargets(gid,pid,item);refreshFillMemberPriority(gid);refreshFillCancelFixed(gid,item);
   setTimeout(()=>$('#fsNick').focus(),100);
 }
 function doFillSlot(gid,pid,boxIdx,itemEnc){
@@ -2248,6 +2295,7 @@ function doFillSlot(gid,pid,boxIdx,itemEnc){
   const liftTargets=isLift?checkedLiftTargetIds('.fsLiftTarget'):[];
   const g=getG(gid);
   const memberPriority=!!getTeam()[n]&&!!$('#fsMemberPriority')?.checked&&!usesLegacyClosedRules(g);
+  const cancelFixed=orderHasFixedSlot(n,item)&&!!$('#fsCancelFixed')?.checked;
   const p=(g.boxProducts||[]).find(b=>b.id===pid);if(!p)return;
   if(isLift){
     const existing=g.orders.find(o=>!o.bind&&o.nick===n&&o.item===item&&orderMatches(p,o)&&o.lift);
@@ -2261,9 +2309,9 @@ function doFillSlot(gid,pid,boxIdx,itemEnc){
     freezeConfirmedBoxes(g2,p2);
     clearAutoBindOrders(g2,p2,item,1);
     if(p2.frozenPins)delete p2.frozenPins[boxIdx+'|||'+item];
-    const ex=g2.orders.find(o=>!o.bind&&o.nick===n&&o.item===item&&orderMatches(p2,o)&&(!!o.lift)===isLift&&(!!o.memberPriority)===memberPriority);
+    const ex=g2.orders.find(o=>!o.bind&&o.nick===n&&o.item===item&&orderMatches(p2,o)&&(!!o.lift)===isLift&&(!!o.memberPriority)===memberPriority&&(!!o.cancelFixed)===cancelFixed);
     if(ex){ex.qty+=1;ex.liftCount=liftCount;ex.liftTargets=isLift?[...new Set([...(ex.liftTargets||[]),...liftTargets])]:[];}
-    else g2.orders.push({id:g2.nOid++,nick:n,item,series:'',qty:1,price:lookupPrice(g2,item,pid)||0,note:'',bpId:pid,lift:isLift,liftCount,liftTargets:isLift?[...liftTargets]:[],memberPriority,ts:Date.now()});
+    else g2.orders.push({id:g2.nOid++,nick:n,item,series:'',qty:1,price:lookupPrice(g2,item,pid)||0,note:'',bpId:pid,lift:isLift,liftCount,liftTargets:isLift?[...liftTargets]:[],memberPriority,cancelFixed,ts:Date.now()});
     if(!p2.pins)p2.pins={};
     p2.pins[boxIdx+'|||'+item]=n;
   });
@@ -2384,7 +2432,7 @@ function boxOrderPriority(g,item,e,team){
   let type=null,rank=0;
   const member=team[e.nick];
   const pos=member?member[item]:null;
-  if(pos){type=pos.t;rank=pos.r||0;}
+  if(pos){type=pos.t==='slot'&&e.cancelFixed?'pick':pos.t;rank=pos.r||0;}
   else if(e.fixed){
     const applies=e.fixedItems&&e.fixedItems.length?e.fixedItems.includes(item):true;
     if(applies){type=e.fixed==='slot'?'slot':'pick';rank=e.fixedRank||0;}
@@ -2447,7 +2495,7 @@ function calcBoxesLegacy(g,p){
     if(p.contents.includes(o.item)&&orderMatches(p,o)){
       if(!o.all)demands[o.item]=(demands[o.item]||0)+o.qty;
       buyerMap[o.item]=buyerMap[o.item]||[];
-      buyerMap[o.item].push({nick:o.nick,qty:o.all?0:o.qty,all:!!o.all,bind:!!o.bind,fixed:o.fixed||null,fixedRank:o.fixedRank||0,fixedItems:o.fixedItems||null,isLift:!!o.lift,oid:o.id||0,ts:o.ts||0,seq});
+      buyerMap[o.item].push({nick:o.nick,qty:o.all?0:o.qty,all:!!o.all,bind:!!o.bind,fixed:o.fixed||null,fixedRank:o.fixedRank||0,fixedItems:o.fixedItems||null,cancelFixed:!!o.cancelFixed,isLift:!!o.lift,oid:o.id||0,ts:o.ts||0,seq});
       if(!o.bind)(distinct[o.nick]=distinct[o.nick]||new Set()).add(o.item);
     }
     seq++;
@@ -2599,7 +2647,7 @@ function calcManualBoxes(g,p){
     const box=p.contents.map((item,index)=>{
       const saved=row?.[index]||null;
       if(!saved)return{item,buyer:null};
-      const buyer={nick:saved.nick||'',oid:0,member:!!saved.member,bind:!!saved.bind,all:!!saved.all,liftExtra:!!saved.liftExtra};
+      const buyer={nick:saved.nick||'',oid:0,member:!!saved.member,bind:!!saved.bind,all:!!saved.all,liftExtra:!!saved.liftExtra,manualLift:!!saved.manualLift,manualLiftTarget:!!saved.manualLiftTarget};
       demands[item]++;
       let summary=buyerMap[item].find(x=>x.nick===buyer.nick&&x.bind===buyer.bind&&x.all===buyer.all&&x.liftExtra===buyer.liftExtra);
       if(summary)summary.qty++;
@@ -2663,7 +2711,7 @@ function calcBoxes(g,p){
     if(p.contents.includes(o.item)&&orderMatches(p,o)){
       matchedOrderCount++;
       buyerMap[o.item]=buyerMap[o.item]||[];
-      buyerMap[o.item].push({nick:o.nick,qty:o.all?0:o.qty,all:!!o.all,bind:!!o.bind,fixed:o.fixed||null,fixedRank:o.fixedRank||0,fixedItems:o.fixedItems||null,isLift:!!o.lift,isLiftTarget:!!liftTargetIds[o.nick]?.has(o.id),memberPriority:!!o.memberPriority,liftCount:Math.max(0,parseInt(o.liftCount)||0),oid:o.id||0,ts:o.ts||0,seq});
+      buyerMap[o.item].push({nick:o.nick,qty:o.all?0:o.qty,all:!!o.all,bind:!!o.bind,fixed:o.fixed||null,fixedRank:o.fixedRank||0,fixedItems:o.fixedItems||null,cancelFixed:!!o.cancelFixed,isLift:!!o.lift,isLiftTarget:!!liftTargetIds[o.nick]?.has(o.id),memberPriority:!!o.memberPriority,liftCount:Math.max(0,parseInt(o.liftCount)||0),oid:o.id||0,ts:o.ts||0,seq});
       if(!o.bind)(distinct[o.nick]=distinct[o.nick]||new Set()).add(o.item);
     }
     seq++;
@@ -3345,13 +3393,25 @@ function showPayModal(gid,nickEnc){
       <div class="form-group"><label>已收款項</label><input id="payAmt" type="number" min="0" value="${p.paid||''}"></div>
     </div>
     <div class="form-group" style="margin-bottom:10px"><label>備註（團員看得到）</label><input id="payNote" value="${esc(p.note||'')}"></div>
-    <div class="form-group" style="margin-bottom:10px"><label>個人備註（僅後台可見）</label><input id="payPNote" value="${esc(getLocalPayNote(gid,nick))}"></div>
+    <div class="form-group" style="margin-bottom:10px"><label>個人備註（僅後台可見）</label><input id="payPNote" value="${esc(getLocalPayNote(gid,nick))}">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button class="bs" onclick="fillPayPrivateNote('中信')">中信</button>
+        <button class="bs" onclick="fillPayPrivateNote('郵局')">郵局</button>
+        <button class="bs" onclick="fillPayPrivateNote('國泰')">國泰</button>
+      </div>
+    </div>
     <div class="btn-row">
       <button class="bs" onclick="document.getElementById('payAmt').value=document.getElementById('payTotal').value">填入全額</button>
       <button class="bs" onclick="document.getElementById('payTotal').value=${computed}">還原系統計算</button>
       <button class="bp" onclick="savePay(${gid},'${encodeURIComponent(nick)}',${computed})">儲存</button>
       <button onclick="closeModal()">取消</button></div>`);
   setTimeout(()=>$('#payAmt').focus(),100);
+}
+function fillPayPrivateNote(value){
+  const input=$('#payPNote');
+  if(!input)return;
+  input.value=value;
+  input.focus();
 }
 function savePay(gid,nickEnc,computed){
   const nick=decodeURIComponent(nickEnc);
@@ -3444,7 +3504,7 @@ function renderExportTab(g){
     <button onclick="doExport(${g.id},'csv')">CSV 下載</button>
     <button onclick="doExport(${g.id},'copy')">複製到剪貼簿</button>
     <button class="bp" onclick="exportXls(${g.id})">匯出 Excel</button>
-    ${g.type==='box'?`<button class="bp" onclick="exportSummaryXls(${g.id})">匯出總表</button><button onclick="exportSummaryXls(${g.id},'member')">匯出團員總表</button><button onclick="exportSummaryXls(${g.id},'nonmember')">匯出非團員總表</button>`:''}</div><div id="exportBox"></div></div>`;
+    ${g.type==='box'?`<button class="bp" onclick="exportSummaryXls(${g.id})">匯出總表</button><button onclick="exportSummaryXls(${g.id},'member')">匯出團員總表</button><button onclick="exportSummaryXls(${g.id},'nonmember')">匯出非團員總表</button><button class="bp" onclick="exportProcurementXls(${g.id})">匯出採購表格</button>`:''}</div><div id="exportBox"></div></div>`;
 }
 
 function xlsxXmlEsc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');}
@@ -3507,6 +3567,43 @@ function downloadXlsxTable(tableHtml,fileName,sheetName){
   const blob=xlsxBlobFromTable(table,sheetName),url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=String(fileName||'export').replace(/[\\/:*?"<>|]/g,'_')+'.xlsx';
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function buildProcurementRows(g){
+  const rows=[];
+  const confirmed=getConfirmedOrders(g);
+  for(const p of(g.boxProducts||[])){
+    if(p.kind==='single'){
+      const quantities={};
+      for(const o of confirmed){
+        if(!p.contents.includes(o.item)||!orderMatches(p,o))continue;
+        quantities[o.item]=(quantities[o.item]||0)+Math.max(0,parseInt(o.qty)||0);
+      }
+      for(const item of p.contents){
+        const qty=quantities[item]||0;
+        if(qty)rows.push({type:'單領',product:p.name,item,qty,unit:'個'});
+      }
+      continue;
+    }
+    const info=calcBoxes(g,p);
+    const qty=info.boxes.filter(box=>box.status==='成團'||box.status==='含綁成團').length;
+    if(qty)rows.push({type:'拆團',product:p.name,item:'',qty,unit:'盒'});
+  }
+  return rows;
+}
+function exportProcurementXls(gid){
+  if(RO)return;
+  const g=getG(gid);if(!g||g.type!=='box')return;
+  const rows=buildProcurementRows(g);
+  if(!rows.length){alert('目前沒有已成團的採購項目');return;}
+  let html=`<table cellspacing="0">
+    <tr><td colspan="5" style="font-size:14pt;font-weight:bold;border:none">${esc(g.name)} — 採購表格</td></tr>
+    <tr><th>類型</th><th>商品</th><th>款式</th><th>數量</th><th>單位</th></tr>`;
+  for(const row of rows){
+    html+=`<tr><td class="ctr">${esc(row.type)}</td><td>${esc(row.product)}</td><td>${esc(row.item)}</td><td class="num">${row.qty}</td><td class="ctr">${row.unit}</td></tr>`;
+  }
+  html+='</table>';
+  downloadXlsxTable(html,g.name+'_採購表格','採購表格');
 }
 
 function exportSummaryXls(gid,scope='all'){
@@ -3772,6 +3869,15 @@ function refreshMultiMemberPriorityControls(){
     if(cb){cb.disabled=!available;if(!available)cb.checked=false;}
   });
 }
+function refreshMultiCancelFixedControls(){
+  const g=getG(_mGid),nick=$('#mON')?.value.trim()||'';if(!g)return;
+  document.querySelectorAll('#mORows .form-row').forEach(row=>{
+    const wrap=row.querySelector('.moCancelFixedWrap'),cb=row.querySelector('.moCancelFixed');if(!wrap||!cb)return;
+    const item=(row.querySelector('.moI')?.value||'').trim();
+    const available=orderHasFixedSlot(nick,item);
+    wrap.style.display=available?'inline-flex':'none';cb.disabled=!available;if(!available)cb.checked=false;
+  });
+}
 function showSingleOrderModal(id){
   const g=getG(id);_mGid=id;_mRowId=0;
   const isBox=g.type==='box',liftLocked=usesLegacyClosedRules(g);
@@ -3810,8 +3916,8 @@ function showSingleOrderModal(id){
     if(b&&b.url&&!$('#mOUrl').value)$('#mOUrl').value=b.url;
     renderShots();
   };
-  nickEl.addEventListener('input',()=>{refreshMultiLiftTargets();refreshMultiMemberPriorityControls();});
-  nickEl.addEventListener('change',()=>{loadBuyer();refreshMultiLiftTargets();refreshMultiMemberPriorityControls();});
+  nickEl.addEventListener('input',()=>{refreshMultiLiftTargets();refreshMultiMemberPriorityControls();refreshMultiCancelFixedControls();});
+  nickEl.addEventListener('change',()=>{loadBuyer();refreshMultiLiftTargets();refreshMultiMemberPriorityControls();refreshMultiCancelFixedControls();});
   nickEl.addEventListener('blur',loadBuyer);
   setTimeout(()=>$('#mON').focus(),100);
 }
@@ -3854,6 +3960,7 @@ function addOrderRow(){
       :`<div class="form-group" style="flex:0 0 56px"><label>${esc(st.fieldPrice)}</label><span class="moPrice muted" style="display:block;padding:6px 0">—</span></div>`}
     <div class="form-group" style="flex:0 0 110px"><label>${esc(st.fieldNote)}</label><input class="moNote" placeholder="選填" style="width:110px"></div>
     <label class="moMemberPriorityWrap" style="display:none;align-items:center;gap:5px;flex:0 0 100%;width:100%;font-size:13px;margin-top:-2px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="moMemberPriority">優先於群外</label>
+    <label class="moCancelFixedWrap" style="display:none;align-items:center;gap:5px;flex:0 0 100%;width:100%;font-size:13px;margin-top:-2px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="moCancelFixed">取消固位效果</label>
     ${r>0?`<button class="bs" title="刪除此筆" style="position:absolute;right:0;top:6px;color:#a32d2d;padding:4px 8px" onclick="document.getElementById('mOR_${r}').remove();refreshMultiLiftTargets()">✕</button>`:''}`;
   $('#mORows').appendChild(div);
   const itemEl=div.querySelector('.moI');
@@ -3886,7 +3993,7 @@ function addOrderRow(){
   if(bpEl){
     bpEl.addEventListener('change',()=>{
       const p=bps.find(b=>b.id===parseInt(bpEl.value));
-      if(!p){itemEl.innerHTML='<option value="">— 先選商品 —</option>';itemEl.disabled=true;if(allBtn)allBtn._setAll(false);updatePrice();refreshMultiLiftTargets();return;}
+      if(!p){itemEl.innerHTML='<option value="">— 先選商品 —</option>';itemEl.disabled=true;if(allBtn)allBtn._setAll(false);updatePrice();refreshMultiLiftTargets();refreshMultiCancelFixedControls();return;}
       if(allBtn){allBtn.disabled=p.kind==='single';if(p.kind==='single')allBtn._setAll(false);}
       itemEl.disabled=false;
       itemEl.innerHTML='<option value="">— 選擇款式 —</option>'+p.contents.map(c=>{
@@ -3895,13 +4002,15 @@ function addOrderRow(){
       }).join('');
       updatePrice();
       refreshMultiLiftTargets();
+      refreshMultiCancelFixedControls();
     });
   }
   if(itemEl && !isBasic){
-    itemEl.addEventListener('input',updatePrice);
-    itemEl.addEventListener('change',updatePrice);
+    itemEl.addEventListener('input',()=>{updatePrice();refreshMultiCancelFixedControls();});
+    itemEl.addEventListener('change',()=>{updatePrice();refreshMultiCancelFixedControls();});
   }
   refreshMultiMemberPriorityControls();
+  refreshMultiCancelFixedControls();
 }
 function checkStock(g,itemName,addQty){
   if(g.type!=='carry')return null;
@@ -3930,7 +4039,8 @@ function addMultiOrder(){
     const price=priceEl?parseFloat(priceEl.value)||0:lookupPrice(g,item,bpId)||0;
     const note=(row.querySelector('.moNote')?.value||'').trim();
     const memberPriority=!!getTeam()[nick]&&!!row.querySelector('.moMemberPriority')?.checked&&!usesLegacyClosedRules(g);
-    entries.push({item,qty,all,price,note,bpId,memberPriority});
+    const cancelFixed=orderHasFixedSlot(nick,item)&&!!row.querySelector('.moCancelFixed')?.checked;
+    entries.push({item,qty,all,price,note,bpId,memberPriority,cancelFixed});
   }
   if(!entries.length){alert(`請至少填一筆${_s.fieldItem}`);return;}
   const seen=new Set();
@@ -3969,7 +4079,7 @@ function addMultiOrder(){
     for(const e of entries){
       const product=e.bpId?(g.boxProducts||[]).find(b=>b.id===e.bpId):(g.boxProducts||[]).find(b=>b.contents.includes(e.item));
       if(product&&product.kind!=='single')clearAutoBindOrders(g,product,e.item,e.all?null:e.qty);
-      g.orders.push({id:g.nOid++,nick,item:e.item,series:'',qty:e.qty,price:e.price,note:e.note,bpId:e.bpId,all:e.all,lift:isLift,liftCount,liftTargets:isLift?[...liftTargets]:[],memberPriority:e.memberPriority,ts:Date.now()});
+      g.orders.push({id:g.nOid++,nick,item:e.item,series:'',qty:e.qty,price:e.price,note:e.note,bpId:e.bpId,all:e.all,lift:isLift,liftCount,liftTargets:isLift?[...liftTargets]:[],memberPriority:e.memberPriority,cancelFixed:e.cancelFixed,ts:Date.now()});
     }
   });
   closeModal();render();
@@ -3995,6 +4105,12 @@ function refreshEditMemberPriority(gid){
   const available=g?.type==='box'&&!!getTeam()[nick]&&!usesLegacyClosedRules(g);
   wrap.style.display=available?'inline-flex':'none';cb.disabled=!available;if(!available)cb.checked=false;
 }
+function refreshEditCancelFixed(gid){
+  const wrap=$('#eOCancelFixedWrap'),cb=$('#eOCancelFixed');if(!wrap||!cb)return;
+  const g=getG(gid),nick=$('#eON')?.value.trim()||'',item=$('#eOI')?.value.trim()||'';
+  const available=!!g&&orderHasFixedSlot(nick,item);
+  wrap.style.display=available?'inline-flex':'none';cb.disabled=!available;if(!available)cb.checked=false;
+}
 function showEditOrderModal(gid,oid){
   const g=getG(gid),o=g.orders.find(x=>x.id===oid);if(!o)return;
   const liftLocked=usesLegacyClosedRules(g);
@@ -4011,6 +4127,7 @@ function showEditOrderModal(gid,oid){
       <div class="form-group"><label>${esc(st.fieldNote)}</label><input id="eONote" value="${esc(o.note||'')}"></div></div>
     <div class="form-group" style="margin-bottom:10px"><label>喊單時間</label><input id="eOTs" type="datetime-local" step="60" value="${localDateTimeValue(o.ts)}"></div>
     <label id="eOMemberPriorityWrap" style="display:none;align-items:center;gap:5px;font-size:13px;margin:0 0 10px;cursor:pointer"><input type="checkbox" id="eOMemberPriority" ${o.memberPriority?'checked':''}>優先於群外</label>
+    <label id="eOCancelFixedWrap" style="display:none;align-items:center;gap:5px;font-size:13px;margin:0 0 10px;cursor:pointer"><input type="checkbox" id="eOCancelFixed" ${o.cancelFixed?'checked':''}>取消固位效果</label>
     ${g.type==='box'?`<div style="margin-bottom:10px">
       <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="eOLift" ${o.lift||o.bindLift?'checked':''} ${liftLocked?'disabled':''} onchange="toggleEditLiftOptions(this,${gid},${oid})">帶餘提配</label>
@@ -4021,10 +4138,12 @@ function showEditOrderModal(gid,oid){
     </div>`:''}
     <div class="btn-row"><button class="bp" onclick="saveOrderEdit(${gid},${oid})">儲存</button><button onclick="closeModal()">取消</button></div>`);
   if(g.type==='box'){
-    $('#eON').addEventListener('input',()=>{refreshEditLiftTargets(gid,oid);refreshEditMemberPriority(gid);});
+    $('#eON').addEventListener('input',()=>{refreshEditLiftTargets(gid,oid);refreshEditMemberPriority(gid);refreshEditCancelFixed(gid);});
+    $('#eOI').addEventListener('input',()=>refreshEditCancelFixed(gid));
     refreshEditLiftTargets(gid,oid);
   }
   refreshEditMemberPriority(gid);
+  refreshEditCancelFixed(gid);
 }
 function saveOrderEdit(gid,oid){
   const g=getG(gid);const o=g.orders.find(x=>x.id===oid);if(!o)return;
@@ -4034,6 +4153,7 @@ function saveOrderEdit(gid,oid){
   const newAll=!!$('#eOAll')?.checked;
   const newTs=new Date($('#eOTs').value).getTime();
   const memberPriority=!!getTeam()[newNick]&&!!$('#eOMemberPriority')?.checked&&!usesLegacyClosedRules(g);
+  const cancelFixed=orderHasFixedSlot(newNick,newItem)&&!!$('#eOCancelFixed')?.checked;
   if(!Number.isFinite(newTs)){alert('請輸入正確的喊單時間');return;}
   if(newItem!==o.item||newNick!==o.nick){
     if(g.orders.some(x=>x.id!==oid&&x.nick===newNick&&x.item===newItem&&(x.bpId||null)===(o.bpId||null))&&!confirm(`${newNick} 已經喊過「${newItem}」，仍要儲存嗎？`))return;
@@ -4055,7 +4175,7 @@ function saveOrderEdit(gid,oid){
     const product=o.bpId?(g.boxProducts||[]).find(p=>p.id===o.bpId):(g.boxProducts||[]).find(p=>p.contents.includes(o.item));
     if(product&&product.kind!=='single'){freezeConfirmedBoxes(g,product);clearAutoBindOrders(g,product,newItem,newAll?null:(newItem===o.item?Math.max(0,newQty-o.qty):newQty));}
     o.nick=newNick;o.item=newItem;
-    o.qty=newAll?1:newQty;o.all=newAll;o.price=parseFloat($('#eOP').value)||0;o.note=$('#eONote').value.trim();o.ts=newTs;
+    o.qty=newAll?1:newQty;o.all=newAll;o.price=parseFloat($('#eOP').value)||0;o.note=$('#eONote').value.trim();o.ts=newTs;o.cancelFixed=cancelFixed;
     if(!g.manualTableMode)for(const p of(g.boxProducts||[]))for(const row of(p.manualRows||[]))for(let i=0;i<(row||[]).length;i++){
       const cell=row[i];if(!cell||cell.oid!==oid)continue;
       if(p.contents[i]!==newItem)row[i]=null;
