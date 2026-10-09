@@ -216,7 +216,7 @@ const DEFAULT_SETTINGS={
   showPrice:true,
   defaultType:'basic',
   defaultStatus:'進行中',
-  statuses:'進行中,已截團待收款,收款中,已完成收款,已到貨,已結團,已流團',
+  statuses:'進行中,已截團待收款,收款中,已收完定金,已完成收款,已到貨,已結團,已流團',
   typeCarryLabel:'帶多統計',
   typeCarryDesc:'社團售物，帶越多越優先',
   typeBoxLabel:'拆盒',
@@ -280,6 +280,16 @@ function loadSettings(){
       localStorage.setItem('gp_settings',JSON.stringify(s));
     }
     localStorage.setItem('gp_status_mig5','1');
+  }
+  if(!localStorage.getItem('gp_status_mig6')){
+    const list=(s.statuses||DEFAULT_SETTINGS.statuses).split(',').map(x=>x.trim()).filter(Boolean);
+    if(!list.includes('已收完定金')){
+      const i=list.indexOf('已完成收款');
+      list.splice(i>=0?i:list.length,0,'已收完定金');
+      s.statuses=list.join(',');
+      localStorage.setItem('gp_settings',JSON.stringify(s));
+    }
+    localStorage.setItem('gp_status_mig6','1');
   }
   return {...DEFAULT_SETTINGS,...s};
 }
@@ -624,9 +634,9 @@ function renderHome(){
     </div>
     <div class="filter-chips"><span class="chip ${homeFilter===''?'active':''}" onclick="homeFilter='';render()">全部</span>
     ${RO
-      ?['進行中','已截團待收款','收款中','已完成收款','已到貨','已流團'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`).join('')
+      ?['進行中','已截團待收款','收款中','已收完定金','已完成收款','已到貨','已流團'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`).join('')
       :[...Object.entries(TYPES).map(([k,v])=>`<span class="chip ${homeFilter===k?'active':''}" onclick="homeFilter='${k}';render()">${v.label}</span>`),
-        ...['進行中','已截團待收款','收款中','已完成收款','已到貨','已流團'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`)
+        ...['進行中','已截團待收款','收款中','已收完定金','已完成收款','已到貨','已流團'].map(s=>`<span class="chip ${homeFilter===s?'active':''}" onclick="homeFilter='${s}';render()">${s}</span>`)
       ].join('')}</div>`;
 
   const byNew=(a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')||b.id-a.id;
@@ -819,7 +829,7 @@ function memberGroupAllShipped(list,ship,nick){
     return !!(ship[key]&&ship[key].s);
   });
 }
-function isShipQueryGroup(g){return ['已完成收款','已到貨','已結團'].includes(g.status);}
+function isShipQueryGroup(g){return ['已收完定金','已完成收款','已到貨','已結團'].includes(g.status);}
 function showShipModal(){
   const db=loadDB();
   const team=getTeam();
@@ -5868,7 +5878,7 @@ function doSaveSettings(){
     showPrice:$('#stShowPrice').checked,
     defaultType:$('#stDefType').value,
     defaultStatus:$('#stDefStatus').value.trim()||'進行中',
-    statuses:$('#stStatuses').value.trim()||'進行中,已截團待收款,收款中,已完成收款,已到貨,已結團,已流團',
+    statuses:$('#stStatuses').value.trim()||'進行中,已截團待收款,收款中,已收完定金,已完成收款,已到貨,已結團,已流團',
     typeCarryLabel:$('#stTCL').value.trim()||'帶多統計',
     typeCarryDesc:$('#stTCD').value.trim()||'社團售物，帶越多越優先',
     typeBoxLabel:$('#stTBL').value.trim()||'拆盒',
